@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,200..1000;1,200..1000&display=swap');
+
+@theme {
+  --color-obsidian: #0a0a0a;
+  --color-obsidian-light: #141414;
+  --color-obsidian-border: #2a2a2a;
+
+  --color-gold: #d4af37;
+  --color-gold-hover: #b5952f;
+  --color-gold-light: #fcd34d;
+
+  --color-acid: #00ff88;
+  --color-signal: #ff3e3e;
+
+  --font-sans: 'Nunito', sans-serif;
+  --font-serif: 'Nunito', sans-serif;
+}
+
+:root {
+  font-family: 'Nunito', system-ui, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: dark;
+  color: #ffffff;
+  background-color: var(--color-obsidian-light);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  display: block;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: var(--color-obsidian-light);
+  overflow-x: hidden;
+}
+
+/* Glassmorphism Classes for New Theme */
+.glass-panel {
+  background: rgba(20, 20, 20, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--color-obsidian-border);
+}
+
+.card-hover-fx {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-hover-fx:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -5px rgba(212, 175, 55, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+  border-color: var(--color-gold);
+}
+
+/* Custom Scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-obsidian);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-obsidian-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gold);
+}
