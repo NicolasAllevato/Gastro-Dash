@@ -65,7 +65,11 @@ export default function App() {
     loadData();
   }, []);
 
-  const formatPesos = (val) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(val);
+  const formatPesos = (val) => {
+    const num = Number(val);
+    if (isNaN(num)) return '$ 0';
+    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(num);
+  };
 
   const menuItems = [
     { id: 'dashboard', label: 'Resumen', icon: LayoutDashboard },
