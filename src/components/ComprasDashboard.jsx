@@ -181,6 +181,18 @@ export default function ComprasDashboard({ data }) {
         ? facturas
         : facturas.filter(f => f.categoria === filtroCat);
 
+    const comprasPorCatPagadas = facturas
+        .filter(f => f.estado && f.estado.toLowerCase() === 'pagada')
+        .reduce((acc, f) => {
+            const cat = f.categoria || 'Sin categoría';
+            acc[cat] = (acc[cat] || 0) + f.total;
+            return acc;
+        }, {});
+
+    const comprasPorCategoriaList = Object.entries(comprasPorCatPagadas)
+        .map(([cat, total]) => ({ categoria: cat, total }))
+        .sort((a, b) => b.total - a.total);
+
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
 
@@ -196,68 +208,91 @@ export default function ComprasDashboard({ data }) {
                 <KpiCard title="Total Pagado" amount={formatPesos(kpis.pagado)} color="border-green-700" icon={<ShoppingCart className="text-green-700" />} />
             </div>
 
-            {/* Gráficos + Ranking */}
+            {/* Sección Media */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <ChartBox title="Distribución Insumos" data={compras.porCategoria || []} type="pie" />
-                <ChartBox title="Evolución Semanal" data={compras.tendencia || []} type="line" xKey="name" />
-                <div className="glass-panel p-6 shadow-xl flex flex-col justify-center border-l-4 border-[var(--color-signal)]">
-                    <h3 className="font-bold text-[var(--color-signal)] mb-4 flex items-center gap-2 uppercase text-[10px] tracking-widest">
-                        <AlertTriangle size={16} /> Top Deudas
+                {/* COMPRAS POR CATEGORÍA */}
+                <div className="glass-panel p-6 shadow-xl flex flex-col justify-center border-l-4 border-[var(--color-obsidian-border)]">
+                    <h3 className="font-bold text-white mb-4 flex items-center gap-2 uppercase text-[10px] tracking-widest">
+                        <ShoppingCart size={16} className="text-[var(--color-gold)]" /> Compras por Categoría
                     </h3>
-                    {(compras.rankingDeuda || []).length === 0 ? (
-                        <p className="text-gray-500 text-sm font-bold">Sin deudas registradas</p>
-                    ) : (compras.rankingDeuda || []).map((d, i) => (
+                    {comprasPorCategoriaList.length === 0 ? (
+                        <p className="text-gray-500 text-sm font-bold">Sin compras pagadas</p>
+                    ) : comprasPorCategoriaList.map((c, i) => (
                         <div key={i} className="flex justify-between items-center py-3 border-b border-[var(--color-obsidian-border)] last:border-0 font-bold text-sm">
-                            <span className="text-gray-400 truncate mr-2">{d.proveedor}</span>
-                            <span className="text-white">{formatPesos(d.monto)}</span>
+                            <span className="text-gray-400 truncate mr-2">{c.categoria}</span>
+                            <span className="text-white">{formatPesos(c.total)}</span>
                         </div>
                     ))}
                 </div>
+
+                {/* Tabla facturas (ahora en la parte media, col-span-2) */}
+                <div className="lg:col-span-2">
+                    <TableWrapper
+                        title="Facturas de Compras"
+                        action={
+                            <div className="flex gap-1 flex-wrap">
+                                {cats.map(c => (
+                                    <button
+                                        key={c}
+                                        onClick={() => setFiltroCat(c)}
+                                        className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest border transition-all ${filtroCat === c ? 'bg-[var(--color-gold)] text-black border-[var(--color-gold)]' : 'border-[var(--color-obsidian-border)] text-gray-400 hover:border-[var(--color-gold)] hover:text-white'}`}
+                                    >
+                                        {c}
+                                    </button>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <table className="w-full text-base lg:text-sm text-left text-white">
+                            <thead className="bg-[#111111] border-b border-[var(--color-obsidian-border)] text-[12px] uppercase font-black text-[var(--color-gold)]">
+                                <tr>
+                                    <th className="px-6 py-4">ID Factura</th>
+                                    <th>Categoría</th>
+                                    <th>Proveedor</th>
+                                    <th>Vencimiento</th>
+                                    <th className="text-right px-6">Total</th>
+                                    <th className="text-center">Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {facturasFiltradas.length === 0 ? (
+                                    <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500 font-bold text-sm">No hay facturas con ese filtro.</td></tr>
+                                ) : facturasFiltradas.map((f, i) => (
+                                    <tr key={i} className="border-b border-[var(--color-obsidian-border)] hover:bg-white/5 transition-colors">
+                                        <td className="px-6 py-4 font-mono font-bold">{f.id}</td>
+                                        <td className="font-bold">{f.categoria}</td>
+                                        <td className="font-bold text-gray-300">{f.proveedor}</td>
+                                        <td className="font-bold text-gray-400">{f.vencimiento}</td>
+                                        <td className="text-right px-6 font-black">{formatPesos(f.total)}</td>
+                                        <td className="text-center">
+                                            <span className={`px-2 py-0.5 border text-[10px] font-black uppercase ${f.estado === 'Pagada' ? 'border-[var(--color-acid)] text-[var(--color-acid)]' : f.estado === 'Vencida' ? 'border-[var(--color-signal)] text-[var(--color-signal)]' : 'border-[var(--color-gold)] text-[var(--color-gold)]'}`}>
+                                                {f.estado}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </TableWrapper>
+                </div>
             </div>
 
-            {/* Tabla facturas */}
-            <TableWrapper
-                title="Facturas de Compras"
-                action={
-                    <div className="flex gap-1 flex-wrap">
-                        {cats.map(c => (
-                            <button
-                                key={c}
-                                onClick={() => setFiltroCat(c)}
-                                className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest border transition-all ${filtroCat === c ? 'bg-[var(--color-gold)] text-black border-[var(--color-gold)]' : 'border-[var(--color-obsidian-border)] text-gray-400 hover:border-[var(--color-gold)] hover:text-white'}`}
-                            >
-                                {c}
-                            </button>
-                        ))}
-                    </div>
-                }
-            >
+            {/* Tabla deudas (reemplaza facturas abajo) */}
+            <TableWrapper title="Top Deudas / Pendientes">
                 <table className="w-full text-base lg:text-xl text-left text-white">
-                    <thead className="bg-[#111111] border-b border-[var(--color-obsidian-border)] text-[12px] lg:text-sm uppercase font-black text-[var(--color-gold)]">
+                    <thead className="bg-[#111111] border-b border-[var(--color-obsidian-border)] text-[12px] lg:text-sm uppercase font-black text-[var(--color-signal)]">
                         <tr>
-                            <th className="px-6 py-4">ID Factura</th>
-                            <th>Categoría</th>
-                            <th>Proveedor</th>
-                            <th>Vencimiento</th>
-                            <th className="text-right px-6">Total</th>
-                            <th className="text-center">Estado</th>
+                            <th className="px-6 py-4">Proveedor</th>
+                            <th className="text-right px-6">Monto Deuda</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {facturasFiltradas.length === 0 ? (
-                            <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500 font-bold text-sm">No hay facturas con ese filtro.</td></tr>
-                        ) : facturasFiltradas.map((f, i) => (
+                        {(compras.rankingDeuda || []).length === 0 ? (
+                            <tr><td colSpan={2} className="px-6 py-8 text-center text-gray-500 font-bold text-sm">Sin deudas registradas.</td></tr>
+                        ) : (compras.rankingDeuda || []).map((d, i) => (
                             <tr key={i} className="border-b border-[var(--color-obsidian-border)] hover:bg-white/5 transition-colors">
-                                <td className="px-6 py-4 font-mono font-bold">{f.id}</td>
-                                <td className="font-bold">{f.categoria}</td>
-                                <td className="font-bold text-gray-300">{f.proveedor}</td>
-                                <td className="font-bold text-gray-400">{f.vencimiento}</td>
-                                <td className="text-right px-6 font-black">{formatPesos(f.total)}</td>
-                                <td className="text-center">
-                                    <span className={`px-2 py-0.5 border text-[10px] font-black uppercase ${f.estado === 'Pagada' ? 'border-[var(--color-acid)] text-[var(--color-acid)]' : f.estado === 'Vencida' ? 'border-[var(--color-signal)] text-[var(--color-signal)]' : 'border-[var(--color-gold)] text-[var(--color-gold)]'}`}>
-                                        {f.estado}
-                                    </span>
-                                </td>
+                                <td className="px-6 py-4 font-bold text-gray-300">{d.proveedor}</td>
+                                <td className="text-right px-6 font-black text-white">{formatPesos(d.monto)}</td>
                             </tr>
                         ))}
                     </tbody>
