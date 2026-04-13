@@ -50,14 +50,34 @@ export default function StockDashboard({ data, onUpdateStock, onAddMovimiento })
   const [actionFormData, setActionFormData] = useState({ idProducto: '', cantidad: '', motivo: '' });
 
   // ── Cálculos derivados ──────────────────────────────────────────────────────
+
+  // Compras por producto filtradas por rango de fechas (usa comprasDetalle del GET)
+  const comprasPorProducto = useMemo(() => {
+    const detalle = data?.stock?.comprasDetalle || [];
+    const map = {};
+    for (const c of detalle) {
+      const s = String(c.fecha || '').trim();
+      let iso = s;
+      const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (m) iso = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+      if (fechaDesde && iso < fechaDesde) continue;
+      if (fechaHasta && iso > fechaHasta) continue;
+      const key = (c.producto || '').toLowerCase().trim();
+      if (key) map[key] = (map[key] || 0) + c.cantidad;
+    }
+    return map;
+  }, [data?.stock?.comprasDetalle, fechaDesde, fechaHasta]);
+
   const processedInventory = useMemo(() => inventory.map(item => {
-    const uso = calculateUsage(item.stockInicial, item.compras, item.stockFinal);
+    const key = (item.producto || '').toLowerCase().trim();
+    const comprasRango = comprasPorProducto[key] ?? item.compras ?? 0;
+    const uso = calculateUsage(item.stockInicial, comprasRango, item.stockFinal);
     const costoPorUso = calculateCostPerUse(uso, item.precioUnitario);
     const totalMerma = calculateWasteTotal(item.merma, item.precioUnitario);
     const hasWarning = item.stockFinal <= item.stockInicial * 0.2;
     const isCritical = item.stockFinal <= 0;
-    return { ...item, uso, costoPorUso, totalMerma, hasWarning, isCritical };
-  }), [inventory]);
+    return { ...item, compras: comprasRango, uso, costoPorUso, totalMerma, hasWarning, isCritical };
+  }), [inventory, comprasPorProducto]);
 
   const filteredInventory = processedInventory.filter(item => {
     const matchesSearch = (item.producto || '').toLowerCase().includes(searchTerm.toLowerCase()) ||

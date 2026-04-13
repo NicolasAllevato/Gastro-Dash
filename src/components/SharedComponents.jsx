@@ -30,7 +30,7 @@ export function KpiCard({ title, amount, subtitle, icon, color }) {
     const accentColor = isDanger ? 'var(--color-signal)' : isPositive ? 'var(--color-acid)' : 'var(--color-gold)';
 
     return (
-        <div className="glass-panel p-5 lg:p-6 flex flex-col items-center justify-center text-center card-hover-fx min-h-[160px] h-full relative overflow-hidden group">
+        <div className="glass-panel p-5 lg:p-6 flex flex-col items-center justify-center text-center card-hover-fx min-h-[140px] lg:min-h-[160px] h-full relative overflow-hidden group">
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-[0.02] group-hover:opacity-[0.08] transition-opacity duration-500 group-hover:scale-110 pointer-events-none">
                 {React.cloneElement(icon || <Package />, { size: 140, color: '#ffffff' })}
             </div>
@@ -38,8 +38,8 @@ export function KpiCard({ title, amount, subtitle, icon, color }) {
                 {React.cloneElement(icon || <Package />, { size: 24, color: accentColor })}
             </div>
             <div className="w-full z-10 flex flex-col items-center justify-center flex-1 h-full">
-                <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.15em] text-gray-400 font-bold mb-1 px-1 text-center w-full text-balance break-words">{title}</p>
-                <h4 className="text-xl sm:text-2xl lg:text-[1.60rem] font-black tracking-tight text-white w-full flex-grow flex items-center justify-center my-2 leading-none text-balance break-words px-2">
+                <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.15em] text-gray-400 font-bold mb-1 px-1 text-center w-full leading-tight">{title}</p>
+                <h4 className="text-lg sm:text-xl lg:text-2xl font-black tracking-tight text-white w-full flex-grow flex items-center justify-center my-1.5 leading-none break-words px-2">
                     {amount}
                 </h4>
                 {subtitle && (
@@ -106,6 +106,55 @@ export function ChartBox({ title, data, type, color = COLORS.gold, xKey }) {
                     )}
                 </ResponsiveContainer>
             </div>
+        </div>
+    );
+}
+
+export function FilterBar({ filtros, onFiltrar, onLimpiar }) {
+    const [desde, setDesde] = React.useState(filtros?.desde || '');
+    const [hasta, setHasta] = React.useState(filtros?.hasta || '');
+
+    const handleFiltrar = () => onFiltrar({ desde, hasta });
+
+    const handleTodo = () => {
+        setDesde('');
+        setHasta('');
+        onLimpiar();
+    };
+
+    return (
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3 bg-[var(--color-obsidian)] border border-[var(--color-obsidian-border)]">
+            <span className="text-[10px] uppercase font-black tracking-widest text-gray-500 hidden sm:block">Período</span>
+            <div className="flex items-center gap-2">
+                <label className="text-[10px] uppercase font-black tracking-widest text-gray-400 whitespace-nowrap">Desde</label>
+                <input
+                    type="date"
+                    value={desde}
+                    onChange={e => setDesde(e.target.value)}
+                    className="bg-[#050505] border border-[var(--color-obsidian-border)] text-white px-2 py-1.5 text-xs font-bold focus:border-[var(--color-gold)] outline-none"
+                />
+            </div>
+            <div className="flex items-center gap-2">
+                <label className="text-[10px] uppercase font-black tracking-widest text-gray-400 whitespace-nowrap">Hasta</label>
+                <input
+                    type="date"
+                    value={hasta}
+                    onChange={e => setHasta(e.target.value)}
+                    className="bg-[#050505] border border-[var(--color-obsidian-border)] text-white px-2 py-1.5 text-xs font-bold focus:border-[var(--color-gold)] outline-none"
+                />
+            </div>
+            <button
+                onClick={handleFiltrar}
+                className="px-4 py-1.5 bg-[var(--color-gold)] text-black text-[10px] font-black uppercase tracking-widest hover:bg-yellow-400 transition-colors"
+            >
+                Filtrar
+            </button>
+            <button
+                onClick={handleTodo}
+                className="px-4 py-1.5 border border-[var(--color-obsidian-border)] text-gray-400 text-[10px] font-black uppercase tracking-widest hover:border-white hover:text-white transition-colors"
+            >
+                Todo
+            </button>
         </div>
     );
 }

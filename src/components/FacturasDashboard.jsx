@@ -1,10 +1,11 @@
 import { useState, useRef } from 'react';
-import { AlertCircle, AlertTriangle, CheckCircle, FileText, Download, Sparkles, Loader2, Upload } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle, FileText, Download, Sparkles, Loader2, Upload, CreditCard, X } from 'lucide-react';
 import { KpiCard, TableWrapper, formatPesos } from './SharedComponents';
 import { postFacturaUpdate, postFacturaUpload } from '../services/api';
 import { useAppContext } from '../AppContext';
 
 const ESTADOS = ['Todas', 'Pendiente', 'Pagada', 'Vencida'];
+const MEDIOS_PAGO = ['Transferencia', 'Efectivo', 'Cheque', 'Débito', 'Crédito'];
 
 const badgeStyle = {
     Pendiente: 'border-[var(--color-gold)] text-[var(--color-gold)]',
@@ -30,14 +31,27 @@ Instrucciones:
 3. Fotografiar o escanear y subir mediante "Cargar Vale".
 `;
 
+const modalPagoVacio = () => ({
+    tipo_pago: 'Total',
+    monto: '',
+    medio: 'Transferencia',
+    fecha: new Date().toISOString().split('T')[0],
+    comprobante: '',
+});
+
 export default function FacturasDashboard({ data, onUpdate, onAskAi }) {
-    const { showToast } = useAppContext();
+    const { showToast, setData, refreshData } = useAppContext();
     const [filtroEstado, setFiltroEstado] = useState('Todas');
     const [sortCol, setSortCol] = useState('vencimiento');
     const [sortAsc, setSortAsc] = useState(true);
-    const [pagandoId, setPagandoId] = useState(null);
     const [subiendoVale, setSubiendoVale] = useState(false);
     const valeInputRef = useRef(null);
+
+    // Modal de pago
+    const [modalPago, setModalPago] = useState({ isOpen: false, factura: null });
+    const [formPago, setFormPago] = useState(modalPagoVacio());
+    const [isPagando, setIsPagando] = useState(false);
+    const [erroresPago, setErroresPago] = useState({});
 
     const facturas = data.facturas || {};
     const lista = facturas.lista || [];
@@ -57,24 +71,91 @@ export default function FacturasDashboard({ data, onUpdate, onAskAi }) {
         else { setSortCol(col); setSortAsc(true); }
     };
 
-    const handlePagar = async (factura) => {
-        setPagandoId(factura.id);
+    const sortIndicator = (col) => sortCol === col ? (sortAsc ? ' ↑' : ' ↓') : '';
+
+    // ── Abrir modal de pago ───────────────────────────────────────────────────
+    const abrirModalPago = (factura) => {
+        setFormPago({ ...modalPagoVacio(), monto: String(factura.monto || '') });
+        setErroresPago({});
+        setModalPago({ isOpen: true, factura });
+    };
+
+    const cerrarModalPago = () => {
+        setModalPago({ isOpen: false, factura: null });
+        setFormPago(modalPagoVacio());
+        setErroresPago({});
+    };
+
+    const handleTipoPagoChange = (tipo) => {
+        setFormPago(f => ({
+            ...f,
+            tipo_pago: tipo,
+            monto: tipo === 'Total' ? String(modalPago.factura?.monto || '') : '',
+        }));
+    };
+
+    const validarPago = () => {
+        const e = {};
+        if (!formPago.monto || Number(formPago.monto) <= 0) e.monto = 'El monto debe ser mayor a 0';
+        if (!formPago.medio) e.medio = 'Seleccioná un medio de pago';
+        return e;
+    };
+
+    const handleConfirmarPago = async () => {
+        const e = validarPago();
+        setErroresPago(e);
+        if (Object.keys(e).length > 0) return;
+
+        setIsPagando(true);
+        const factura = modalPago.factura;
+        const nuevoEstado = formPago.tipo_pago === 'Total' ? 'Pagada' : 'Pago Parcial';
+
         try {
             await postFacturaUpdate({
-                id: factura.id,
-                estado: 'Pagada',
-                fechaPago: new Date().toISOString().split('T')[0],
+                id:          factura.id,
+                nro_factura: factura.id,
+                proveedor:   factura.proveedor,
+                estado:      nuevoEstado,
+                fecha:       formPago.fecha,
+                medio_pago:  formPago.medio,
+                tipo_pago:   formPago.tipo_pago,
+                monto:       Number(formPago.monto),
+                comprobante: formPago.comprobante,
             });
-            showToast(`Factura ${factura.id} marcada como pagada`, 'success');
-            onUpdate();
+
+            showToast(`Factura ${factura.id} marcada como ${nuevoEstado.toLowerCase()}`, 'success');
+
+            // Optimistic update — actualizar estado de la factura localmente
+            setData(prev => ({
+                ...prev,
+                facturas: {
+                    ...prev.facturas,
+                    lista: (prev.facturas?.lista || []).map(f =>
+                        String(f.id) === String(factura.id)
+                            ? { ...f, estado: nuevoEstado }
+                            : f
+                    ),
+                },
+            }));
+
+            cerrarModalPago();
+
+            // Sincronizar en background
+            refreshData();
         } catch {
-            showToast('Error al actualizar la factura', 'error');
+            showToast('Error al actualizar la factura. Revisá la conexión con n8n.', 'error');
         } finally {
-            setPagandoId(null);
+            setIsPagando(false);
         }
     };
 
-    const sortIndicator = (col) => sortCol === col ? (sortAsc ? ' ↑' : ' ↓') : '';
+    const handleDescargar = (f) => {
+        if (f.drive_link) {
+            window.open(f.drive_link, '_blank', 'noopener,noreferrer');
+        } else {
+            showToast('Esta factura no tiene archivo adjunto en Drive', 'info');
+        }
+    };
 
     const handleDescargarPlantilla = () => {
         const blob = new Blob([PLANTILLA_VALE], { type: 'text/plain;charset=utf-8' });
@@ -102,6 +183,9 @@ export default function FacturasDashboard({ data, onUpdate, onAskAi }) {
         }
     };
 
+    // KPI cant: siempre número puro (nunca pesos)
+    const cantDocumentos = Number(facturas.kpis?.cant ?? lista.length) || lista.length;
+
     return (
         <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-300">
             {/* KPIs */}
@@ -109,7 +193,7 @@ export default function FacturasDashboard({ data, onUpdate, onAskAi }) {
                 <KpiCard title="Vencido Urgente" amount={formatPesos(facturas.kpis?.vencida)} color="border-red-500" icon={<AlertCircle className="text-red-500" />} />
                 <KpiCard title="A Vencer (7d)" amount={formatPesos(facturas.kpis?.aVencer)} color="border-yellow-500" icon={<AlertTriangle className="text-yellow-500" />} />
                 <KpiCard title="Pagado Mes" amount={formatPesos(facturas.kpis?.pagado)} color="border-green-500" icon={<CheckCircle className="text-green-500" />} />
-                <KpiCard title="Documentos" amount={facturas.kpis?.cant ?? lista.length} color="border-blue-500" icon={<FileText className="text-blue-500" />} />
+                <KpiCard title="Documentos" amount={cantDocumentos} color="border-blue-500" icon={<FileText className="text-blue-500" />} />
             </div>
 
             {/* Vales RRHH */}
@@ -145,11 +229,9 @@ export default function FacturasDashboard({ data, onUpdate, onAskAi }) {
 
             {/* Tabla con filtros */}
             <div className="glass-panel overflow-hidden shadow-xl w-full border border-[var(--color-obsidian-border)]">
-                {/* Header */}
                 <div className="px-6 py-5 border-b border-[var(--color-obsidian-border)] flex flex-col sm:flex-row justify-between sm:items-center gap-3 bg-[var(--color-obsidian)]">
                     <h3 className="font-serif font-black text-sm lg:text-base uppercase tracking-widest text-white">Archivo Maestro de Facturación</h3>
                     <div className="flex items-center gap-2 flex-wrap">
-                        {/* Filtro estado */}
                         <div className="flex gap-1">
                             {ESTADOS.map(e => (
                                 <button
@@ -172,9 +254,8 @@ export default function FacturasDashboard({ data, onUpdate, onAskAi }) {
                     </div>
                 </div>
 
-                {/* Tabla */}
                 <div className="overflow-x-auto w-full">
-                    <table className="w-full text-left min-w-[900px] text-base lg:text-xl text-white">
+                    <table className="w-full text-left min-w-[900px] text-sm text-white">
                         <thead className="bg-[#111111] text-[12px] lg:text-sm text-[var(--color-gold)] uppercase tracking-widest font-black border-b border-[var(--color-obsidian-border)]">
                             <tr>
                                 <th className="px-6 py-4">ID Factura</th>
@@ -205,15 +286,17 @@ export default function FacturasDashboard({ data, onUpdate, onAskAi }) {
                                         <div className="flex items-center justify-center gap-2">
                                             {f.estado !== 'Pagada' && (
                                                 <button
-                                                    onClick={() => handlePagar(f)}
-                                                    disabled={pagandoId === f.id}
-                                                    className="flex items-center gap-1 bg-[var(--color-acid)]/10 border border-[var(--color-acid)] text-[var(--color-acid)] px-2.5 py-1 text-[10px] font-black uppercase hover:bg-[var(--color-acid)] hover:text-black transition-all disabled:opacity-50"
+                                                    onClick={() => abrirModalPago(f)}
+                                                    className="flex items-center gap-1 bg-[var(--color-acid)]/10 border border-[var(--color-acid)] text-[var(--color-acid)] px-2.5 py-1 text-[10px] font-black uppercase hover:bg-[var(--color-acid)] hover:text-black transition-all"
                                                 >
-                                                    {pagandoId === f.id ? <Loader2 size={10} className="animate-spin" /> : <CheckCircle size={10} />}
-                                                    Pagar
+                                                    <CreditCard size={10} /> Pagar
                                                 </button>
                                             )}
-                                            <button className="p-2 text-[var(--color-gold)] hover:scale-110 transition-all">
+                                            <button
+                                                onClick={() => handleDescargar(f)}
+                                                title={f.drive_link ? 'Descargar desde Drive' : 'Sin archivo adjunto'}
+                                                className={`p-2 transition-all ${f.drive_link ? 'text-[var(--color-gold)] hover:scale-110' : 'text-gray-600 cursor-not-allowed'}`}
+                                            >
                                                 <Download size={16} />
                                             </button>
                                         </div>
@@ -224,6 +307,107 @@ export default function FacturasDashboard({ data, onUpdate, onAskAi }) {
                     </table>
                 </div>
             </div>
+
+            {/* Modal registrar pago de factura */}
+            {modalPago.isOpen && modalPago.factura && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+                    <div className="bg-[var(--color-obsidian-light)] border border-[var(--color-obsidian-border)] w-full max-w-sm shadow-2xl">
+                        <div className="px-6 py-5 border-b border-[var(--color-gold)]/40 bg-[var(--color-gold)]/5 flex justify-between items-center">
+                            <div>
+                                <h3 className="font-black uppercase tracking-widest text-sm flex items-center gap-2 text-[var(--color-gold)]">
+                                    <CreditCard size={16} /> Registrar Pago
+                                </h3>
+                                <p className="text-xs font-bold text-gray-400 mt-0.5">
+                                    Factura #{modalPago.factura.id} — {modalPago.factura.proveedor} — {formatPesos(modalPago.factura.monto)}
+                                </p>
+                            </div>
+                            <button onClick={cerrarModalPago} className="text-gray-400 hover:text-white"><X size={18} /></button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            {/* Tipo de pago */}
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Tipo de Pago</label>
+                                <div className="flex gap-2">
+                                    {['Total', 'Parcial'].map(t => (
+                                        <button
+                                            key={t}
+                                            onClick={() => handleTipoPagoChange(t)}
+                                            className={`flex-1 py-2.5 text-xs font-black uppercase tracking-widest border transition-all ${
+                                                formPago.tipo_pago === t
+                                                    ? 'bg-[var(--color-gold)] text-black border-[var(--color-gold)]'
+                                                    : 'bg-transparent text-gray-400 border-[var(--color-obsidian-border)] hover:border-[var(--color-gold)] hover:text-white'
+                                            }`}
+                                        >
+                                            {t}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            {/* Monto */}
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Monto $</label>
+                                <input
+                                    type="number"
+                                    placeholder="0"
+                                    value={formPago.monto}
+                                    readOnly={formPago.tipo_pago === 'Total'}
+                                    onChange={e => setFormPago(f => ({ ...f, monto: e.target.value }))}
+                                    className={`w-full bg-[var(--color-obsidian)] border border-[var(--color-obsidian-border)] text-white px-4 py-2.5 text-sm font-bold outline-none ${formPago.tipo_pago === 'Total' ? 'opacity-60 cursor-not-allowed' : 'focus:border-[var(--color-gold)]'}`}
+                                />
+                                {erroresPago.monto && <p className="text-[var(--color-signal)] text-xs mt-1 font-bold">{erroresPago.monto}</p>}
+                            </div>
+                            {/* Medio de pago */}
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Medio de Pago</label>
+                                <select
+                                    value={formPago.medio}
+                                    onChange={e => setFormPago(f => ({ ...f, medio: e.target.value }))}
+                                    className="w-full bg-[var(--color-obsidian)] border border-[var(--color-obsidian-border)] text-white px-4 py-2.5 text-sm font-bold focus:border-[var(--color-gold)] outline-none"
+                                >
+                                    {MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}
+                                </select>
+                                {erroresPago.medio && <p className="text-[var(--color-signal)] text-xs mt-1 font-bold">{erroresPago.medio}</p>}
+                            </div>
+                            {/* Fecha de pago */}
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Fecha de Pago</label>
+                                <input
+                                    type="date"
+                                    value={formPago.fecha}
+                                    onChange={e => setFormPago(f => ({ ...f, fecha: e.target.value }))}
+                                    className="w-full bg-[var(--color-obsidian)] border border-[var(--color-obsidian-border)] text-white px-4 py-2.5 text-sm font-bold focus:border-[var(--color-gold)] outline-none"
+                                />
+                            </div>
+                            {/* Comprobante */}
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Nro. Comprobante <span className="normal-case text-gray-500">(opcional)</span></label>
+                                <input
+                                    type="text"
+                                    placeholder="Ej: TRF-001234"
+                                    value={formPago.comprobante}
+                                    onChange={e => setFormPago(f => ({ ...f, comprobante: e.target.value }))}
+                                    className="w-full bg-[var(--color-obsidian)] border border-[var(--color-obsidian-border)] text-white px-4 py-2.5 text-sm font-bold focus:border-[var(--color-gold)] outline-none placeholder:text-gray-600"
+                                />
+                            </div>
+                        </div>
+                        <div className="p-5 border-t border-[var(--color-obsidian-border)] flex justify-end gap-3">
+                            <button
+                                onClick={cerrarModalPago}
+                                className="px-5 py-2.5 text-[11px] font-black uppercase tracking-widest border border-[var(--color-obsidian-border)] text-gray-400 hover:text-white transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleConfirmarPago}
+                                disabled={isPagando}
+                                className="px-5 py-2.5 text-[11px] font-black uppercase tracking-widest bg-[var(--color-acid)] text-black hover:opacity-90 transition-all flex items-center gap-2 disabled:opacity-50"
+                            >
+                                {isPagando ? <><Loader2 size={14} className="animate-spin" /> Guardando...</> : <><CheckCircle size={14} /> Confirmar Pago</>}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

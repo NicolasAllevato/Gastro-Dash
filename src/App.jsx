@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { callGeminiWithContext, postStockMovement } from './services/api';
+import { callGeminiWithContext, postStockMovement, postGuardarConfiguracion, postGuardarCostos } from './services/api';
 import GeminiChat from './components/GeminiChat';
 import StockDashboard from './components/StockDashboard';
 import ResumenDashboard from './components/ResumenDashboard';
@@ -9,50 +9,34 @@ import PagosDashboard from './components/PagosDashboard';
 import FacturasDashboard from './components/FacturasDashboard';
 import RRHHDashboard from './components/RRHHDashboard';
 import LoginScreen from './components/LoginScreen';
+import ConfiguracionesDashboard from './components/ConfiguracionesDashboard';
 import { ToastContainer } from './components/ToastNotification';
 import { AppProvider, useAppContext } from './AppContext';
 import { AuthProvider, useAuth } from './AuthContext';
-import { KpiCard, ChartBox, TableWrapper, formatPesos, COLORS } from './components/SharedComponents';
+import { KpiCard, ChartBox, TableWrapper, FilterBar, formatPesos, COLORS } from './components/SharedComponents';
 import {
   LayoutDashboard, ShoppingCart, DollarSign, Users, FileText,
   CreditCard, TrendingDown, TrendingUp, Calendar, Menu, X,
   AlertCircle, AlertTriangle, CheckCircle, Box, BookOpen,
-  ChevronLeft, Sparkles, Loader2, LogOut
+  ChevronLeft, Sparkles, Loader2, LogOut, Settings, Edit2, Save
 } from 'lucide-react';
 import RecetarioDashboard from './components/RecetarioDashboard';
 
-// --- DATOS INICIALES (fallback si n8n no responde) ---
+// --- DATOS INICIALES (fallback vacío si n8n no responde) ---
 const initialData = {
   resumen: { kpis: [], tendencia: [] },
   ventas: { acumuladas: 0, promedioDiario: 0, mejorTurno: '', porTurno: [], porMedioPago: [], porDia: [] },
   compras: { kpis: {}, porCategoria: [], tendencia: [], rankingDeuda: [], facturas: [] },
   rrhh: { kpis: {}, porArea: [], empleados: [] },
-  costos: { kpis: { mayorAumento: { variacion: 0, producto: '' }, mayorGasto: { monto: 0, producto: '' } }, topInsumos: [], evolucion: [], productos: [] },
+  costos: { kpis: { mayorAumento: { variacion: 0, producto: '' }, mayorGasto: { monto: 0, producto: '' }, itemsAumento: 0 }, topInsumos: [], evolucion: [], productos: [] },
   pagos: { kpis: { cat: {} }, porMedio: [], salidaDia: [], lista: [] },
   facturas: { kpis: {}, lista: [] },
   stock: {
-    kpis: {
-      valorInventario: 1250000,
-      mermasTotales: 45000,
-      alertasCriticas: 3,
-      cmvMensual: 850000
-    },
-    inventario: [
-      { id: 1, categoria: 'Bebidas', producto: 'Coca Cola 1.5L', unidad: 'Botella', stockInicial: 50, compras: 120, stockFinal: 45, merma: 2, precioUnitario: 1500, proveedor: 'Distribuidora Norte' },
-      { id: 2, categoria: 'Insumos', producto: 'Harina 0000', unidad: 'Kg', stockInicial: 100, compras: 50, stockFinal: 20, merma: 0, precioUnitario: 650, proveedor: 'Molinos Rio' },
-      { id: 3, categoria: 'Lácteos', producto: 'Muzzarella', unidad: 'Kg', stockInicial: 30, compras: 40, stockFinal: 15, merma: 1, precioUnitario: 4500, proveedor: 'Lácteos Sur' },
-      { id: 4, categoria: 'Carnes', producto: 'Carne Picada', unidad: 'Kg', stockInicial: 10, compras: 20, stockFinal: 2, merma: 0, precioUnitario: 5200, proveedor: 'Frigorífico Central' }
-    ],
-    cmvHistorial: [
-      { mes: 'Oct', cmv: 780000 },
-      { mes: 'Nov', cmv: 820000 },
-      { mes: 'Dic', cmv: 950000 },
-      { mes: 'Ene', cmv: 850000 }
-    ],
-    movimientos: [
-      { id: 1, fecha: '2024-01-01 10:00', responsable: 'Admin', tipo: 'Generación Inicial', producto: 'Todos', cantidad: 0, motivo: 'Carga del sistema' }
-    ]
-  }
+    kpis: { valorInventario: 0, mermasTotales: 0, alertasCriticas: 0, cmvMensual: 0 },
+    inventario: [],
+    cmvHistorial: [],
+    movimientos: [],
+  },
 };
 
 // --- COMPONENTE PRINCIPAL ---
@@ -73,7 +57,8 @@ function AppGate() {
 }
 
 function AppInner() {
-  const { data, setData, isLoading, toasts, removeToast, showToast, refreshData } = useAppContext();
+  const { data, setData, isLoading, isRefreshing, filtros, toasts, removeToast, showToast, refreshData } = useAppContext();
+  const DATA_TABS = ['dashboard', 'ventas', 'compras', 'stock', 'rrhh', 'costos', 'pagos', 'facturas'];
   const { user, logout, puedeVer } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -81,6 +66,9 @@ function AppInner() {
   const [aiResponse, setAiResponse] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiTopic, setAiTopic] = useState('');
+  const [editCostoModal, setEditCostoModal] = useState({ isOpen: false, producto: null });
+  const [editCostoForm, setEditCostoForm] = useState({ nombre: '', categoria: '', unidad: '', merma: 0 });
+  const [isSavingCosto, setIsSavingCosto] = useState(false);
 
   // Carga inicial de datos desde n8n
   useEffect(() => {
@@ -88,15 +76,16 @@ function AppInner() {
   }, []);
 
   const allMenuItems = [
-    { id: 'dashboard', label: 'Resumen',       icon: LayoutDashboard, modulo: 'resumen' },
-    { id: 'ventas',    label: 'Ventas',         icon: TrendingUp,      modulo: 'ventas' },
-    { id: 'compras',   label: 'Compras',        icon: ShoppingCart,    modulo: 'compras' },
-    { id: 'stock',     label: 'Stock',          icon: Box,             modulo: 'stock' },
-    { id: 'rrhh',      label: 'RRHH',           icon: Users,           modulo: 'rrhh' },
-    { id: 'costos',    label: 'Control Costos', icon: TrendingDown,    modulo: 'compras' },
-    { id: 'pagos',     label: 'Control Pagos',  icon: CreditCard,      modulo: 'pagos' },
-    { id: 'facturas',  label: 'Facturas',       icon: FileText,        modulo: 'facturas' },
-    { id: 'recetario', label: 'Recetario',      icon: BookOpen,        modulo: 'recetario' },
+    { id: 'dashboard',       label: 'Resumen',        icon: LayoutDashboard, modulo: 'resumen' },
+    { id: 'ventas',          label: 'Ventas',          icon: TrendingUp,      modulo: 'ventas' },
+    { id: 'compras',         label: 'Compras',         icon: ShoppingCart,    modulo: 'compras' },
+    { id: 'stock',           label: 'Stock',           icon: Box,             modulo: 'stock' },
+    { id: 'rrhh',            label: 'RRHH',            icon: Users,           modulo: 'rrhh' },
+    { id: 'costos',          label: 'Control Costos',  icon: TrendingDown,    modulo: 'compras' },
+    { id: 'pagos',           label: 'Control Pagos',   icon: CreditCard,      modulo: 'pagos' },
+    { id: 'facturas',        label: 'Facturas',        icon: FileText,        modulo: 'facturas' },
+    { id: 'recetario',       label: 'Recetario',       icon: BookOpen,        modulo: 'recetario' },
+    { id: 'configuraciones', label: 'Configuraciones', icon: Settings,        modulo: 'configuraciones' },
   ];
 
   const menuItems = allMenuItems.filter(item => puedeVer(item.modulo));
@@ -114,6 +103,40 @@ function AppInner() {
       setAiResponse('Hubo un problema de conexión con el asistente estratégico.');
     } finally {
       setIsAiLoading(false);
+    }
+  };
+
+  const handleEditCostoClick = (p) => {
+    setEditCostoForm({ nombre: p.nombre, categoria: p.categoria || '', unidad: p.unidad || '', merma: p.merma || 0 });
+    setEditCostoModal({ isOpen: true, producto: p });
+  };
+
+  const handleSaveEditCosto = async () => {
+    setIsSavingCosto(true);
+    try {
+      await postGuardarCostos({
+        nombre_actual: editCostoModal.producto.nombre,
+        nombre: editCostoForm.nombre,
+        categoria: editCostoForm.categoria,
+        unidad_medida: editCostoForm.unidad,
+        merma: Number(editCostoForm.merma),
+      });
+      setData(prev => ({
+        ...prev,
+        costos: {
+          ...prev.costos,
+          productos: prev.costos.productos.map(p =>
+            p.nombre === editCostoModal.producto.nombre
+              ? { ...p, nombre: editCostoForm.nombre, categoria: editCostoForm.categoria, unidad: editCostoForm.unidad, merma: Number(editCostoForm.merma) }
+              : p
+          )
+        }
+      }));
+      setEditCostoModal({ isOpen: false, producto: null });
+    } catch {
+      showToast('Error al guardar. Revisá la conexión con n8n.', 'error');
+    } finally {
+      setIsSavingCosto(false);
     }
   };
 
@@ -173,6 +196,12 @@ function AppInner() {
             </h1>
           </div>
           <div className="flex items-center gap-3">
+            {isRefreshing && (
+              <div className="flex items-center gap-1.5 text-[var(--color-gold)] opacity-70">
+                <Loader2 size={14} className="animate-spin" />
+                <span className="text-[9px] font-black uppercase tracking-widest hidden sm:block">Actualizando</span>
+              </div>
+            )}
             <div className="hidden sm:flex flex-col items-end">
               <span className="text-[11px] font-black text-white leading-none">{user?.nombre}</span>
               <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--color-gold)] mt-0.5">{user?.rol}</span>
@@ -187,7 +216,15 @@ function AppInner() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-8 bg-[var(--color-obsidian-light)]">
+        {DATA_TABS.includes(activeTab) && (
+          <FilterBar
+            filtros={filtros}
+            onFiltrar={(f) => refreshData(f)}
+            onLimpiar={() => refreshData({ desde: '', hasta: '' })}
+          />
+        )}
+
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-8 space-y-6 lg:space-y-8 bg-[var(--color-obsidian-light)]">
 
           {activeTab === 'dashboard' && <ResumenDashboard data={data} />}
 
@@ -198,32 +235,45 @@ function AppInner() {
           {activeTab === 'rrhh' && <RRHHDashboard data={data} onUpdate={refreshData} />}
 
           {activeTab === 'costos' && (
-            <div className="space-y-8 animate-in fade-in duration-500">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-500">
+              <div className="kpi-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
                 <KpiCard title="Mayor Aumento" amount={`${data.costos.kpis.mayorAumento.variacion}%`} subtitle={data.costos.kpis.mayorAumento.producto} color="border-red-800" icon={<TrendingUp className="text-red-400" />} />
                 <KpiCard title="Insumo Mayor Gasto" amount={formatPesos(data.costos.kpis.mayorGasto.monto)} subtitle={data.costos.kpis.mayorGasto.producto} color="border-pink-800" icon={<DollarSign className="text-pink-400" />} />
                 <KpiCard title="Alertas de Precio" amount={data.costos.kpis.itemsAumento ?? 0} color="border-yellow-800" icon={<AlertTriangle className="text-yellow-400" />} />
               </div>
               <TableWrapper title="Monitoreo de Precios Unitarios">
-                <table className="w-full text-base lg:text-xl text-left text-white">
-                  <thead className="bg-[#111111] font-black text-[var(--color-gold)] uppercase text-[12px] lg:text-sm border-b border-[var(--color-obsidian-border)]">
+                <table className="w-full text-sm text-left text-white">
+                  <thead className="bg-[#111111] font-black text-[var(--color-gold)] uppercase text-[11px] border-b border-[var(--color-obsidian-border)]">
                     <tr>
                       <th className="px-6 py-4">Producto</th>
-                      <th className="text-right">Anterior</th>
-                      <th className="text-right font-black">Actual</th>
-                      <th className="text-center px-6">Variación</th>
+                      <th className="px-4 py-4">U.M</th>
+                      <th className="px-4 py-4">Categoría</th>
+                      <th className="px-4 py-4 text-right">Anterior</th>
+                      <th className="px-4 py-4 text-right">Actual</th>
+                      <th className="px-4 py-4 text-center">Variación</th>
+                      <th className="px-4 py-4 text-center w-12"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.costos.productos.length === 0 ? (
-                      <tr><td colSpan={4} className="px-6 py-8 text-center text-gray-500 font-bold text-sm">Sin datos de precios.</td></tr>
+                      <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500 font-bold text-sm">Sin datos de precios.</td></tr>
                     ) : data.costos.productos.map((p, i) => (
-                      <tr key={i} className="border-b border-[var(--color-obsidian-border)] hover:bg-white/5 transition-colors">
-                        <td className="px-6 py-4 font-black">{p.nombre}</td>
-                        <td className="text-right font-bold text-gray-400">{formatPesos(p.ant)}</td>
-                        <td className="text-right font-black text-white">{formatPesos(p.act)}</td>
-                        <td className="text-center px-6">
-                          <span className="font-black p-1 px-2 border border-[var(--color-signal)] text-[var(--color-signal)] text-sm">{p.var}%</span>
+                      <tr key={i} className="border-b border-[var(--color-obsidian-border)] hover:bg-white/5 transition-colors group">
+                        <td className="px-6 py-3 font-black">{p.nombre}</td>
+                        <td className="px-4 py-3 text-gray-400 font-bold">{p.unidad || '—'}</td>
+                        <td className="px-4 py-3 text-gray-400 font-bold">{p.categoria || '—'}</td>
+                        <td className="px-4 py-3 text-right font-bold text-gray-400">{formatPesos(p.ant)}</td>
+                        <td className="px-4 py-3 text-right font-black text-white">{formatPesos(p.act)}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="font-black p-1 px-2 border border-[var(--color-signal)] text-[var(--color-signal)] text-xs">{p.var}%</span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            onClick={() => handleEditCostoClick(p)}
+                            className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-[var(--color-gold)] transition-all"
+                          >
+                            <Edit2 size={14} />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -238,6 +288,8 @@ function AppInner() {
           {activeTab === 'facturas' && <FacturasDashboard data={data} onUpdate={refreshData} onAskAi={handleAskAi} />}
 
           {activeTab === 'recetario' && <RecetarioDashboard data={data} />}
+
+          {activeTab === 'configuraciones' && <ConfiguracionesDashboard />}
 
           {activeTab === 'stock' && (
             <StockDashboard
@@ -256,8 +308,8 @@ function AppInner() {
                 }));
                 try {
                   await postStockMovement(movimiento);
-                } catch (err) {
-                  console.error('Fallo al sincronizar movimiento con n8n:', err);
+                } catch {
+                  showToast('No se pudo sincronizar el movimiento con n8n.', 'warning');
                 }
               }}
             />
@@ -293,6 +345,54 @@ function AppInner() {
             </div>
             <div className="p-6 bg-white border-t flex justify-end shrink-0">
               <button onClick={() => setIsAiModalOpen(false)} className="bg-gray-900 text-white px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-gray-800">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDITAR COSTO */}
+      {editCostoModal.isOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <div className="bg-[#111111] border border-[var(--color-obsidian-border)] w-full max-w-md shadow-2xl">
+            <div className="p-5 border-b border-[var(--color-gold)]/40 bg-[var(--color-gold)]/5 flex justify-between items-center">
+              <h3 className="font-black uppercase tracking-widest text-base flex items-center gap-2 text-[var(--color-gold)]">
+                <Edit2 size={18} /> Editar Insumo
+              </h3>
+              <button onClick={() => setEditCostoModal({ isOpen: false, producto: null })} className="text-gray-400 hover:text-white"><X size={18} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              {[
+                { label: 'Nombre producto', key: 'nombre', type: 'text' },
+                { label: 'Categoría', key: 'categoria', type: 'text' },
+                { label: 'Unidad de medida', key: 'unidad', type: 'text' },
+                { label: 'Merma (%)', key: 'merma', type: 'number' },
+              ].map(({ label, key, type }) => (
+                <div key={key} className="space-y-1">
+                  <label className="text-[10px] uppercase font-black tracking-widest text-gray-400">{label}</label>
+                  <input
+                    type={type}
+                    value={editCostoForm[key]}
+                    onChange={e => setEditCostoForm(prev => ({ ...prev, [key]: type === 'number' ? e.target.value : e.target.value }))}
+                    className="w-full bg-[#050505] border border-[var(--color-obsidian-border)] text-white px-3 py-2.5 text-sm focus:border-[var(--color-gold)] outline-none font-bold"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="p-5 border-t border-[var(--color-obsidian-border)] flex justify-end gap-3">
+              <button
+                onClick={() => setEditCostoModal({ isOpen: false, producto: null })}
+                className="px-5 py-2.5 text-[11px] font-black uppercase tracking-widest border border-[var(--color-obsidian-border)] text-gray-400 hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveEditCosto}
+                disabled={isSavingCosto}
+                className="px-5 py-2.5 text-[11px] font-black uppercase tracking-widest bg-[var(--color-gold)] text-black hover:bg-yellow-400 transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                {isSavingCosto ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Guardar
+              </button>
             </div>
           </div>
         </div>

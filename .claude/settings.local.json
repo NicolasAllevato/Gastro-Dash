@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__n8n-mcp__n8n_get_workflow",
+      "Bash(python -c \"import sys,json; data=json.load\\(sys.stdin\\); wf=json.loads\\(data[0]['text']\\); nodes=[n for n in wf['nodes'] if 'googleSheets' in n.get\\('type',''\\).lower\\(\\) or 'Google Sheets' in n.get\\('name',''\\)]; print\\(json.dumps\\(nodes, indent=2\\)\\)\")",
+      "Bash(python -c \"import sys,json; data=json.load\\(sys.stdin\\); wf=json.loads\\(data[0]['text']\\); print\\(list\\(wf.keys\\(\\)\\)\\)\")",
+      "Bash(python -c ':*)",
+      "Bash(python:*)",
+      "mcp__n8n-mcp__n8n_update_partial_workflow",
+      "Bash(python3:*)",
+      "mcp__n8n-mcp__tools_documentation",
+      "mcp__n8n-mcp__n8n_validate_workflow",
+      "Bash(node:*)",
+      "mcp__n8n-mcp__n8n_create_workflow",
+      "mcp__n8n-mcp__n8n_list_workflows",
+      "mcp__n8n-mcp__n8n_autofix_workflow",
+      "mcp__n8n-mcp__n8n_update_full_workflow",
+      "Bash(npx vite:*)",
+      "Bash(npm run:*)",
+      "Bash(curl:*)",
+      "mcp__n8n-mcp__n8n_delete_workflow",
+      "Bash(gws --version)",
+      "Bash(gws auth:*)",
+      "Bash(gws gmail:*)",
+      "Bash(gws sheets:*)"
+    ]
+  }
+}

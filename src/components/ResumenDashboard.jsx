@@ -1,4 +1,5 @@
 import { TrendingUp, ShoppingCart, Users, AlertCircle, FileText, Package, AlertTriangle, DollarSign, TrendingDown, Percent } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTip, ResponsiveContainer } from 'recharts';
 import { KpiCard, ChartBox, formatPesos } from './SharedComponents';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -25,23 +26,41 @@ const BadgeEstado = ({ estado }) => {
 
 // ── Componente principal ──────────────────────────────────────────────────────
 export default function ResumenDashboard({ data }) {
-    const kpis = data.resumen?.kpis || [];
     const tendencia = data.resumen?.tendencia || [];
 
     // Datos cruzados entre módulos
     const facturasLista = data.facturas?.lista || [];
     const comprasFacturas = data.compras?.facturas || [];
     const inventario = data.stock?.inventario || [];
-    const ventas = data.ventas?.acumuladas || 0;
+
+    // Ventas acumuladas del mes en curso
+    const hoy = new Date();
+    const mesActual = hoy.getMonth();
+    const anioActual = hoy.getFullYear();
+    const ventasMes = (data.ventas?.porDia || []).filter(d => {
+        const f = new Date(d.fecha);
+        return f.getMonth() === mesActual && f.getFullYear() === anioActual;
+    });
+    const acumuladoMes = ventasMes.reduce((s, d) => s + (Number(d.total) || 0), 0);
+    const ventas = acumuladoMes > 0 ? acumuladoMes : (data.ventas?.acumuladas || 0);
+    const subtituloMes = hoy.toLocaleString('es-AR', { month: 'long', year: 'numeric' });
+
+    // Serie diaria para el gráfico de evaluación de ingresos
+    const serieEvaluacion = Array.from({ length: hoy.getDate() }, (_, i) => {
+        const dia = i + 1;
+        const entrada = ventasMes.find(d => new Date(d.fecha).getDate() === dia);
+        return { dia: String(dia), total: Number(entrada?.total || 0) };
+    });
+
     const comprasTotales = data.compras?.kpis?.totales || 0;
     const rrhh = data.rrhh?.kpis?.sueldosAPagar || 0;
     const pagosTotal = data.pagos?.kpis?.total || 0;
     const stockCritico = inventario.filter(i => i.stockFinal <= 0).length;
     const valesPendientes = data.rrhh?.kpis?.totalVales || 0;
 
-    // ── KPIs display ─────────────────────────────────────────────────────────
-    const kpisDisplay = kpis.length > 0 ? kpis : [
-        { titulo: 'Ventas Totales', valor: ventas, tipo: 'positivo' },
+    // ── KPIs display — siempre derivados de datos cross-módulo ───────────────
+    const kpisDisplay = [
+        { titulo: 'Ventas Mes', valor: ventas, tipo: 'positivo', subtitulo: subtituloMes },
         { titulo: 'Compras Totales', valor: comprasTotales, tipo: 'neutro' },
         { titulo: 'Costo RRHH', valor: rrhh, tipo: 'neutro' },
         { titulo: 'Deuda Proveedores', valor: data.compras?.kpis?.porPagar || 0, tipo: 'negativo' },
@@ -50,7 +69,7 @@ export default function ResumenDashboard({ data }) {
     ];
 
     const iconMap = {
-        'Ventas Totales': <TrendingUp />, 'Compras Totales': <ShoppingCart />,
+        'Ventas Mes': <TrendingUp />, 'Compras Totales': <ShoppingCart />,
         'Costo RRHH': <Users />, 'Deuda Proveedores': <AlertCircle />,
         'Resultado Neto': <DollarSign />, 'Egresos Totales': <TrendingDown />,
     };
@@ -106,7 +125,7 @@ export default function ResumenDashboard({ data }) {
                         key={i}
                         title={kpi.titulo}
                         amount={formatPesos(kpi.valor)}
-                        subtitle={kpi.variacion != null ? `${kpi.variacion > 0 ? '+' : ''}${kpi.variacion}% vs mes ant.` : undefined}
+                        subtitle={kpi.subtitulo || (kpi.variacion != null ? `${kpi.variacion > 0 ? '+' : ''}${kpi.variacion}% vs mes ant.` : undefined)}
                         color={colorMap[kpi.tipo] || 'border-blue-700'}
                         icon={iconMap[kpi.titulo] || <Package />}
                     />
@@ -143,104 +162,144 @@ export default function ResumenDashboard({ data }) {
             {/* ── Layout principal ──────────────────────────────────────────── */}
             <div className="space-y-6">
 
-                    {/* Tendencia */}
-                    {tendencia.length > 0 && (
-                        <ChartBox title="Evolución de Ingresos" data={tendencia} type="area" xKey="mes" />
+                    {/* Evaluación de Ingresos — gráfico de línea diario */}
+                    {serieEvaluacion.length > 0 && (
+                        <div className="glass-panel p-6 border border-[var(--color-obsidian-border)]">
+                            <div className="flex items-center justify-between mb-6">
+                                <h3 className="text-sm font-black text-[var(--color-gold)] uppercase tracking-widest flex items-center gap-2">
+                                    <TrendingUp size={16} /> Evaluación de Ingresos
+                                </h3>
+                                <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                                    Mes en curso — día a día
+                                </span>
+                            </div>
+                            <div className="h-64 w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={serieEvaluacion} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-obsidian-border)" />
+                                        <XAxis
+                                            dataKey="dia"
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fontSize: 11, fontWeight: '700', fill: '#a0a0a0' }}
+                                        />
+                                        <YAxis
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fontSize: 11, fill: '#a0a0a0', fontWeight: '700' }}
+                                            tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                                            width={55}
+                                        />
+                                        <RechartsTip
+                                            contentStyle={{ backgroundColor: 'var(--color-obsidian)', border: '1px solid var(--color-obsidian-border)', color: '#fff' }}
+                                            formatter={(v) => [`$${Number(v).toLocaleString('es-AR')}`, 'Venta']}
+                                            labelFormatter={(l) => `Día ${l}`}
+                                        />
+                                        <Line
+                                            type="monotone"
+                                            dataKey="total"
+                                            stroke="#d4af37"
+                                            strokeWidth={3}
+                                            dot={{ r: 3, fill: '#0a0a0a', stroke: '#d4af37', strokeWidth: 2 }}
+                                            activeDot={{ r: 5, fill: '#d4af37' }}
+                                            connectNulls={false}
+                                        />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
                     )}
 
-                    {/* Facturas por vencer */}
-                    <div className="glass-panel overflow-hidden border border-[var(--color-obsidian-border)]">
-                        <div className="px-5 py-4 border-b border-[var(--color-obsidian-border)] flex items-center justify-between">
-                            <h3 className="font-black text-[var(--color-gold)] uppercase tracking-widest text-sm flex items-center gap-2">
-                                <FileText size={16} /> Facturas por Vencer
-                            </h3>
-                            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Próximos 30 días</span>
-                        </div>
-                        {facturasPorVencer.length === 0 ? (
-                            <p className="px-5 py-6 text-center text-gray-600 text-xs font-bold uppercase tracking-widest">Sin facturas próximas a vencer</p>
-                        ) : (
-                            <table className="w-full text-sm text-left text-white">
-                                <thead className="bg-[#111] text-[10px] text-gray-500 uppercase tracking-widest font-black border-b border-[var(--color-obsidian-border)]">
-                                    <tr>
-                                        <th className="px-5 py-3">Concepto / Proveedor</th>
-                                        <th className="px-4 py-3 text-center">Vencimiento</th>
-                                        <th className="px-4 py-3 text-center">Estado</th>
-                                        <th className="px-4 py-3 text-right">Monto</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-[var(--color-obsidian-border)]">
-                                    {facturasPorVencer.map((f, i) => (
-                                        <tr key={i} className={`hover:bg-white/5 transition-colors ${f.diasRestantes < 0 ? 'bg-[var(--color-signal)]/5' : f.diasRestantes <= 7 ? 'bg-[var(--color-gold)]/5' : ''}`}>
-                                            <td className="px-5 py-3">
-                                                <p className="font-black text-white text-xs">{f.proveedor || f.concepto || '—'}</p>
-                                                {f.id && <p className="text-[10px] font-mono text-gray-500">{f.id}</p>}
-                                            </td>
-                                            <td className="px-4 py-3 text-center">
-                                                <p className="font-bold text-xs text-gray-300">{f.vencimiento}</p>
-                                                <p className={`text-[10px] font-black ${f.diasRestantes < 0 ? 'text-[var(--color-signal)]' : f.diasRestantes <= 7 ? 'text-[var(--color-gold)]' : 'text-gray-500'}`}>
-                                                    {f.diasRestantes < 0 ? `Vencida hace ${Math.abs(f.diasRestantes)}d` : f.diasRestantes === 0 ? 'Vence hoy' : `En ${f.diasRestantes}d`}
-                                                </p>
-                                            </td>
-                                            <td className="px-4 py-3 text-center">
-                                                <BadgeEstado estado={f.estado} />
-                                            </td>
-                                            <td className="px-4 py-3 text-right font-black text-white">{formatPesos(f.total || f.monto)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        )}
-                    </div>
+                    {/* Facturas por vencer + Gasto por Categoría — side by side */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-                    {/* Categorías de gasto */}
-                    <div className="glass-panel overflow-hidden border border-[var(--color-obsidian-border)]">
-                        <div className="px-5 py-4 border-b border-[var(--color-obsidian-border)] flex items-center justify-between">
-                            <h3 className="font-black text-[var(--color-gold)] uppercase tracking-widest text-sm flex items-center gap-2">
-                                <ShoppingCart size={16} /> Gasto por Categoría
-                            </h3>
-                            {categoriaMayor && (
-                                <span className="text-[10px] font-black text-[var(--color-signal)] uppercase tracking-widest flex items-center gap-1">
-                                    <AlertTriangle size={11} /> Mayor: {categoriaMayor.nombre}
-                                </span>
+                        {/* Facturas por vencer */}
+                        <div className="glass-panel overflow-hidden border border-[var(--color-obsidian-border)] flex flex-col">
+                            <div className="px-5 py-4 border-b border-[var(--color-obsidian-border)] flex items-center justify-between shrink-0">
+                                <h3 className="font-black text-[var(--color-gold)] uppercase tracking-widest text-sm flex items-center gap-2">
+                                    <FileText size={16} /> Facturas por Vencer
+                                </h3>
+                                <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Próximos 30 días</span>
+                            </div>
+                            {facturasPorVencer.length === 0 ? (
+                                <p className="px-5 py-6 text-center text-gray-600 text-xs font-bold uppercase tracking-widest">Sin facturas próximas a vencer</p>
+                            ) : (
+                                <div className="divide-y divide-[var(--color-obsidian-border)] overflow-y-auto max-h-80">
+                                    {facturasPorVencer.map((f, i) => (
+                                        <div
+                                            key={i}
+                                            className={`flex items-center justify-between px-5 py-3 hover:bg-white/5 transition-colors ${
+                                                f.diasRestantes < 0 ? 'bg-[var(--color-signal)]/5' : f.diasRestantes <= 7 ? 'bg-[var(--color-gold)]/5' : ''
+                                            }`}
+                                        >
+                                            <div className="min-w-0 flex-1">
+                                                <p className="font-black text-white text-xs truncate">{f.proveedor || f.concepto || '—'}</p>
+                                                <p className={`text-[10px] font-black mt-0.5 ${
+                                                    f.diasRestantes < 0 ? 'text-[var(--color-signal)]' : f.diasRestantes <= 7 ? 'text-[var(--color-gold)]' : 'text-gray-500'
+                                                }`}>
+                                                    {f.vencimiento} · {f.diasRestantes < 0 ? `Vencida hace ${Math.abs(f.diasRestantes)}d` : f.diasRestantes === 0 ? 'Vence hoy' : `En ${f.diasRestantes}d`}
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-3 ml-4 shrink-0">
+                                                <BadgeEstado estado={f.estado} />
+                                                <span className="font-black text-white text-sm">{formatPesos(f.total || f.monto)}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             )}
                         </div>
-                        {categoriasMapeadas.length === 0 ? (
-                            <p className="px-5 py-6 text-center text-gray-600 text-xs font-bold uppercase tracking-widest">Sin datos de categorías</p>
-                        ) : (
-                            <div className="p-5 space-y-3">
-                                {categoriasMapeadas.map((cat, i) => {
-                                    const pct = totalCategorias > 0 ? ((cat.monto / totalCategorias) * 100).toFixed(1) : 0;
-                                    const pctVentas = ventas > 0 ? ((cat.monto / ventas) * 100).toFixed(1) : null;
-                                    const isMayor = i === 0;
-                                    return (
-                                        <div key={cat.nombre} className={`p-3 border ${isMayor ? 'border-[var(--color-signal)]/40 bg-[var(--color-signal)]/5' : 'border-[var(--color-obsidian-border)] bg-white/[0.02]'}`}>
-                                            <div className="flex items-center justify-between mb-2">
-                                                <div className="flex items-center gap-2">
-                                                    {isMayor && <AlertTriangle size={13} className="text-[var(--color-signal)] shrink-0" />}
-                                                    <span className={`text-xs font-black uppercase tracking-widest ${isMayor ? 'text-white' : 'text-gray-300'}`}>{cat.nombre}</span>
-                                                </div>
-                                                <div className="flex items-center gap-3">
-                                                    {pctVentas && (
-                                                        <span className="flex items-center gap-1 text-[10px] font-black text-gray-500">
-                                                            <Percent size={10} /> {pctVentas}% s/ventas
-                                                        </span>
-                                                    )}
-                                                    <span className="font-black text-white text-sm">{formatPesos(cat.monto)}</span>
-                                                </div>
-                                            </div>
-                                            {/* Barra de progreso */}
-                                            <div className="w-full bg-[var(--color-obsidian)] h-1.5">
-                                                <div
-                                                    className={`h-1.5 transition-all duration-700 ${isMayor ? 'bg-[var(--color-signal)]' : 'bg-[var(--color-gold)]'}`}
-                                                    style={{ width: `${pct}%` }}
-                                                />
-                                            </div>
-                                            <p className="text-[10px] text-gray-600 font-bold mt-1 text-right">{pct}% del gasto total</p>
-                                        </div>
-                                    );
-                                })}
+
+                        {/* Categorías de gasto */}
+                        <div className="glass-panel overflow-hidden border border-[var(--color-obsidian-border)] flex flex-col">
+                            <div className="px-5 py-4 border-b border-[var(--color-obsidian-border)] flex items-center justify-between shrink-0">
+                                <h3 className="font-black text-[var(--color-gold)] uppercase tracking-widest text-sm flex items-center gap-2">
+                                    <ShoppingCart size={16} /> Gasto por Categoría
+                                </h3>
+                                {categoriaMayor && (
+                                    <span className="text-[10px] font-black text-[var(--color-signal)] uppercase tracking-widest flex items-center gap-1">
+                                        <AlertTriangle size={11} /> Mayor: {categoriaMayor.nombre}
+                                    </span>
+                                )}
                             </div>
-                        )}
+                            {categoriasMapeadas.length === 0 ? (
+                                <p className="px-5 py-6 text-center text-gray-600 text-xs font-bold uppercase tracking-widest">Sin datos de categorías</p>
+                            ) : (
+                                <div className="p-4 space-y-2 overflow-y-auto max-h-80">
+                                    {categoriasMapeadas.map((cat, i) => {
+                                        const pct = totalCategorias > 0 ? ((cat.monto / totalCategorias) * 100).toFixed(1) : 0;
+                                        const pctVentas = ventas > 0 ? ((cat.monto / ventas) * 100).toFixed(1) : null;
+                                        const isMayor = i === 0;
+                                        return (
+                                            <div key={cat.nombre} className={`p-3 border ${isMayor ? 'border-[var(--color-signal)]/40 bg-[var(--color-signal)]/5' : 'border-[var(--color-obsidian-border)] bg-white/[0.02]'}`}>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <div className="flex items-center gap-2">
+                                                        {isMayor && <AlertTriangle size={13} className="text-[var(--color-signal)] shrink-0" />}
+                                                        <span className={`text-xs font-black uppercase tracking-widest ${isMayor ? 'text-white' : 'text-gray-300'}`}>{cat.nombre}</span>
+                                                    </div>
+                                                    <div className="flex flex-col items-end gap-0.5">
+                                                        <span className="font-black text-white text-sm">{formatPesos(cat.monto)}</span>
+                                                        {pctVentas && (
+                                                            <span className="flex items-center gap-1 text-[10px] font-black text-[var(--color-gold)]">
+                                                                <Percent size={9} /> {pctVentas}% s/ventas
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="w-full bg-[var(--color-obsidian)] h-1.5">
+                                                    <div
+                                                        className={`h-1.5 transition-all duration-700 ${isMayor ? 'bg-[var(--color-signal)]' : 'bg-[var(--color-gold)]'}`}
+                                                        style={{ width: `${pct}%` }}
+                                                    />
+                                                </div>
+                                                <p className="text-[10px] text-gray-600 font-bold mt-1 text-right">{pct}% del gasto total</p>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
                     </div>
             </div>
 

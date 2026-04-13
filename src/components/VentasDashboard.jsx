@@ -6,17 +6,25 @@ import { exportJSONToExcel } from '../services/stockUtils';
 import { useAppContext } from '../AppContext';
 
 const MEDIOS_OPCIONES = ['Efectivo', 'Débito', 'Crédito', 'Mercado Pago', 'Transferencia'];
+const TURNOS_OPCIONES = [
+    { value: 'mañana', label: 'Mañana' },
+    { value: 'tarde',  label: 'Tarde'  },
+    { value: 'noche',  label: 'Noche'  },
+];
+const CANALES_FALLBACK = ['Mostrador', 'Delivery', 'PedidosYa', 'Rappi', 'Web'];
 
-const formVacio = () => ({
-    fecha: new Date().toISOString().split('T')[0],
-    manana: '',
-    tarde: '',
-    noche: '',
-    medios: [{ medio: 'Efectivo', monto: '' }],
+const formVacio = (canalDefault = '') => ({
+    fecha:            new Date().toISOString().split('T')[0],
+    total_venta:      '',
+    turno:            'mañana',
+    canal:            canalDefault,
+    medios:           [{ medio: 'Efectivo', monto: '' }],
+    total_declarado:  '',
+    notas:            '',
 });
 
 export default function VentasDashboard({ data, onUpdate }) {
-    const { showToast } = useAppContext();
+    const { showToast, setData, refreshData } = useAppContext();
     const [modalVenta, setModalVenta] = useState(null);
     const [showForm, setShowForm] = useState(false);
     const [form, setForm] = useState(formVacio());
@@ -24,17 +32,70 @@ export default function VentasDashboard({ data, onUpdate }) {
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const ventas = data.ventas || {};
+    const porDia = ventas.porDia || [];
+
+    // KPIs computados desde porDia (lista ya filtrada por n8n)
+    const totalVentas = porDia.reduce((s, d) => s + (Number(d.total) || 0), 0);
+    const fechasUnicas = new Set(porDia.map(d => d.fecha).filter(Boolean));
+    const promedioDiario = fechasUnicas.size > 0 ? totalVentas / fechasUnicas.size : 0;
+
+    // Acumulado del mes en curso (independiente del filtro de fechas)
+    const hoy = new Date();
+    const ventasMesActual = porDia.filter(d => {
+        const f = new Date(d.fecha);
+        return f.getMonth() === hoy.getMonth() && f.getFullYear() === hoy.getFullYear();
+    });
+    const totalMesActual = ventasMesActual.reduce((s, d) => s + (Number(d.total) || 0), 0);
+    const subtituloMes = hoy.toLocaleString('es-AR', { month: 'long', year: 'numeric' });
+
+    // Turnos: sumar desde cada fila de porDia
+    const turnosMap = {};
+    for (const d of porDia) {
+        if (d.turnos && typeof d.turnos === 'object') {
+            for (const [t, v] of Object.entries(d.turnos)) {
+                turnosMap[t] = (turnosMap[t] || 0) + (Number(v) || 0);
+            }
+        } else if (d.turno) {
+            turnosMap[d.turno] = (turnosMap[d.turno] || 0) + (Number(d.total) || 0);
+        }
+    }
+    const mejorTurno = Object.entries(turnosMap).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+    const turnosList = Object.entries(turnosMap)
+        .map(([turno, total]) => ({ turno, total }))
+        .sort((a, b) => b.total - a.total);
+
+    // Medios de pago computados desde porDia
+    const mediosMap = {};
+    for (const d of porDia) {
+        for (const m of (d.medios || [])) {
+            if (m.medio) mediosMap[m.medio] = (mediosMap[m.medio] || 0) + (Number(m.monto) || 0);
+        }
+    }
+    const porMedioPago = Object.entries(mediosMap).map(([name, value]) => ({ name, value }));
+
+    // Canales: desde n8n (ventas.canales) con fallback estático
+    const canalesDisponibles = (ventas.canales || []).length > 0
+        ? ventas.canales.map(c => c.nombre)
+        : CANALES_FALLBACK;
+
+    // ── Diferencia auto-calculada ─────────────────────────────────────────────
+    const totalVenta     = Number(form.total_venta    || 0);
+    const totalDeclarado = Number(form.total_declarado || 0);
+    const diferencia     = totalVenta - totalDeclarado;
+
+    // ── Abrir formulario con canal default ────────────────────────────────────
+    const abrirForm = () => {
+        setForm(formVacio(canalesDisponibles[0] || ''));
+        setErrores({});
+        setShowForm(true);
+    };
 
     // ── Validación ────────────────────────────────────────────────────────────
     const validar = () => {
         const e = {};
-        const total = Number(form.manana || 0) + Number(form.tarde || 0) + Number(form.noche || 0);
-        if (!form.fecha) e.fecha = 'La fecha es requerida';
-        if (total <= 0) e.total = 'Al menos un turno debe tener monto mayor a 0';
-        const sumamedios = form.medios.reduce((s, m) => s + Number(m.monto || 0), 0);
-        if (form.medios.length > 0 && Math.abs(sumamedios - total) > 1) {
-            e.medios = `La suma de medios ($${sumamedios.toLocaleString()}) debe coincidir con el total de turnos ($${total.toLocaleString()})`;
-        }
+        if (!form.fecha)       e.fecha      = 'La fecha es requerida';
+        if (totalVenta <= 0)   e.total_venta = 'El total de venta debe ser mayor a 0';
+        if (!form.canal)       e.canal       = 'Seleccioná un canal de venta';
         return e;
     };
 
@@ -43,21 +104,47 @@ export default function VentasDashboard({ data, onUpdate }) {
         setErrores(e);
         if (Object.keys(e).length > 0) return;
         setIsSubmitting(true);
+
+        const payload = {
+            fecha:           form.fecha,
+            turno:           form.turno,
+            canal:           form.canal,
+            total_venta:     totalVenta,
+            total_declarado: totalDeclarado,
+            diferencia,
+            medios: form.medios.map(m => ({ medio: m.medio, monto: Number(m.monto || 0) })),
+            notas: form.notas,
+            importe:         totalVenta,
+        };
+
         try {
-            await postVenta({
-                fecha: form.fecha,
-                turnos: {
-                    manana: Number(form.manana || 0),
-                    tarde: Number(form.tarde || 0),
-                    noche: Number(form.noche || 0),
-                },
-                medios: form.medios.map(m => ({ medio: m.medio, monto: Number(m.monto || 0) })),
-                total: Number(form.manana || 0) + Number(form.tarde || 0) + Number(form.noche || 0),
-            });
+            await postVenta(payload);
             showToast('Venta registrada exitosamente', 'success');
-            setForm(formVacio());
+
+            // Optimistic update — agregar al listado local sin recargar toda la página
+            setData(prev => {
+                const nuevoDia = {
+                    fecha: form.fecha,
+                    total: totalVenta,
+                    canal: form.canal,
+                    turnos: { [form.turno]: totalVenta },
+                    medios: payload.medios,
+                };
+                return {
+                    ...prev,
+                    ventas: {
+                        ...prev.ventas,
+                        acumuladas: (prev.ventas?.acumuladas || 0) + totalVenta,
+                        porDia: [nuevoDia, ...(prev.ventas?.porDia || [])],
+                    },
+                };
+            });
+
+            setForm(formVacio(canalesDisponibles[0] || ''));
             setShowForm(false);
-            onUpdate();
+
+            // Refrescar en background para sincronizar con n8n
+            refreshData();
         } catch {
             showToast('Error al registrar la venta. Revisá la conexión con n8n.', 'error');
         } finally {
@@ -75,16 +162,46 @@ export default function VentasDashboard({ data, onUpdate }) {
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
             {/* KPIs */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                <KpiCard title="Ventas Acumuladas" amount={formatPesos(ventas.acumuladas)} color="border-teal-700" icon={<TrendingUp className="text-teal-700" />} />
-                <KpiCard title="Promedio Diario" amount={formatPesos(ventas.promedioDiario || 0)} color="border-pink-700" icon={<DollarSign className="text-pink-700" />} />
-                <KpiCard title="Mejor Turno" amount={ventas.mejorTurno || '—'} color="border-blue-700" icon={<Calendar className="text-blue-700" />} />
+            <div className="kpi-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
+                <KpiCard title="Ventas Mes" amount={formatPesos(totalMesActual || totalVentas)} subtitle={subtituloMes} color="border-teal-700" icon={<TrendingUp className="text-teal-700" />} />
+                <KpiCard title="Promedio Diario" amount={formatPesos(promedioDiario)} color="border-pink-700" icon={<DollarSign className="text-pink-700" />} />
+                <KpiCard title="Mejor Turno" amount={mejorTurno} color="border-blue-700" icon={<Calendar className="text-blue-700" />} />
             </div>
 
             {/* Gráficos */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <ChartBox title="Ventas por Turno" data={ventas.porTurno || []} type="bar" />
-                <ChartBox title="Medios de Pago" data={ventas.porMedioPago || []} type="pie" />
+                {/* Lista tabular de turnos */}
+                <div className="glass-panel overflow-hidden border border-[var(--color-obsidian-border)] h-full">
+                    <div className="px-5 py-4 border-b border-[var(--color-obsidian-border)] flex items-center justify-between">
+                        <h3 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2">
+                            <Calendar size={16} className="text-[var(--color-gold)]" /> Ventas por Turno
+                        </h3>
+                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Período filtrado</span>
+                    </div>
+                    {turnosList.length === 0 ? (
+                        <p className="px-5 py-8 text-center text-gray-500 text-xs font-bold uppercase tracking-widest">Sin datos</p>
+                    ) : (
+                        <div className="divide-y divide-[var(--color-obsidian-border)]">
+                            {turnosList.map(({ turno, total }) => {
+                                const pct = totalVentas > 0 ? ((total / totalVentas) * 100).toFixed(1) : 0;
+                                return (
+                                    <div key={turno} className="flex items-center justify-between px-5 py-4 hover:bg-white/5 transition-colors">
+                                        <span className="font-black text-white text-sm capitalize">{turno}</span>
+                                        <div className="flex items-center gap-4">
+                                            <span className="text-[10px] font-bold text-gray-500">{pct}%</span>
+                                            <span className="font-black text-[var(--color-gold)] text-sm">{formatPesos(total)}</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            <div className="flex items-center justify-between px-5 py-4 bg-white/[0.03]">
+                                <span className="font-black text-gray-400 text-xs uppercase tracking-widest">Total</span>
+                                <span className="font-black text-white text-base">{formatPesos(totalVentas)}</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+                <ChartBox title="Medios de Pago" data={porMedioPago} type="pie" />
             </div>
 
             {/* Tabla diaria */}
@@ -100,7 +217,7 @@ export default function VentasDashboard({ data, onUpdate }) {
                             <Download size={14} /> Exportar
                         </button>
                         <button
-                            onClick={() => setShowForm(true)}
+                            onClick={abrirForm}
                             className="flex items-center gap-2 bg-[var(--color-gold)] text-black px-3 py-2 text-xs font-black uppercase tracking-widest hover:bg-[var(--color-gold-hover)] transition-all"
                         >
                             <Plus size={14} /> Registrar
@@ -108,26 +225,30 @@ export default function VentasDashboard({ data, onUpdate }) {
                     </div>
                 }
             >
-                <table className="w-full text-base lg:text-xl text-white">
-                    <thead className="bg-[#111111] border-b border-[var(--color-obsidian-border)] text-[12px] lg:text-sm uppercase font-black text-[var(--color-gold)]">
+                <table className="w-full text-sm text-white">
+                    <thead className="bg-[#111111] border-b border-[var(--color-obsidian-border)] text-[11px] uppercase tracking-wider font-semibold text-[var(--color-gold)]">
                         <tr>
-                            <th className="px-6 py-4">Fecha</th>
-                            <th>Mañana</th>
-                            <th>Tarde</th>
-                            <th>Noche</th>
-                            <th className="text-right px-6">Total</th>
+                            <th className="px-4 py-3 text-center">Fecha</th>
+                            <th className="px-4 py-3 text-center">Canal</th>
+                            <th className="px-4 py-3 text-center">Turno</th>
+                            <th className="px-4 py-3 text-center">Mañana</th>
+                            <th className="px-4 py-3 text-center">Tarde</th>
+                            <th className="px-4 py-3 text-center">Noche</th>
+                            <th className="px-4 py-3 text-center">Total</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="text-sm">
                         {(ventas.porDia || []).length === 0 ? (
-                            <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500 font-bold text-sm">Sin datos de ventas. Registrá el primer día.</td></tr>
+                            <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500 text-sm">Sin datos de ventas. Registrá el primer día.</td></tr>
                         ) : (ventas.porDia || []).map((d, i) => (
                             <tr key={i} onClick={() => setModalVenta(d)} className="border-b border-[var(--color-obsidian-border)] hover:bg-white/5 cursor-pointer transition-colors">
-                                <td className="px-6 py-4 font-bold">{d.fecha}</td>
-                                <td className="font-bold">{formatPesos(d.turnos?.manana)}</td>
-                                <td className="font-bold">{formatPesos(d.turnos?.tarde)}</td>
-                                <td className="font-bold">{formatPesos(d.turnos?.noche)}</td>
-                                <td className="px-6 py-4 text-right font-black">{formatPesos(d.total)}</td>
+                                <td className="px-4 py-3 text-center text-gray-200">{d.fecha}</td>
+                                <td className="px-4 py-3 text-center text-gray-400">{d.canal || '—'}</td>
+                                <td className="px-4 py-3 text-center text-gray-300 capitalize">{d.turno || '—'}</td>
+                                <td className="px-4 py-3 text-center">{formatPesos(d.turnos?.mañana ?? d.turnos?.manana)}</td>
+                                <td className="px-4 py-3 text-center">{formatPesos(d.turnos?.tarde)}</td>
+                                <td className="px-4 py-3 text-center">{formatPesos(d.turnos?.noche)}</td>
+                                <td className="px-4 py-3 text-center font-semibold text-white">{formatPesos(d.total)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -142,6 +263,7 @@ export default function VentasDashboard({ data, onUpdate }) {
                             <div>
                                 <h3 className="font-black text-gray-800 uppercase tracking-tighter text-lg">Detalle Cobro</h3>
                                 <span className="text-xs font-bold text-teal-500">{modalVenta.fecha}</span>
+                                {modalVenta.canal && <span className="text-xs font-bold text-gray-400 ml-2">— {modalVenta.canal}</span>}
                             </div>
                             <button onClick={() => setModalVenta(null)}><X size={20} /></button>
                         </div>
@@ -164,8 +286,8 @@ export default function VentasDashboard({ data, onUpdate }) {
 
             {/* Modal formulario nueva venta */}
             {showForm && (
-                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-                    <div className="bg-[var(--color-obsidian-light)] border border-[var(--color-obsidian-border)] w-full max-w-lg rounded-lg shadow-2xl overflow-hidden">
+                <div className="modal-overlay fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
+                    <div className="modal-panel bg-[var(--color-obsidian-light)] border border-[var(--color-obsidian-border)] w-full sm:max-w-lg sm:rounded-lg shadow-2xl overflow-hidden">
                         <div className="px-6 py-5 border-b border-[var(--color-obsidian-border)] flex justify-between items-center">
                             <h3 className="font-black text-[var(--color-gold)] uppercase tracking-widest text-sm">Registrar Venta del Día</h3>
                             <button onClick={() => { setShowForm(false); setErrores({}); }} className="text-gray-500 hover:text-white transition-colors"><X size={20} /></button>
@@ -182,22 +304,46 @@ export default function VentasDashboard({ data, onUpdate }) {
                                 />
                                 {errores.fecha && <p className="text-[var(--color-signal)] text-xs mt-1 font-bold">{errores.fecha}</p>}
                             </div>
-                            {/* Turnos */}
-                            <div className="grid grid-cols-3 gap-3">
-                                {[['manana', 'Mañana'], ['tarde', 'Tarde'], ['noche', 'Noche']].map(([key, label]) => (
-                                    <div key={key}>
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">{label}</label>
-                                        <input
-                                            type="number"
-                                            placeholder="0"
-                                            value={form[key]}
-                                            onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                                            className="w-full bg-[var(--color-obsidian)] border border-[var(--color-obsidian-border)] text-white px-3 py-2.5 text-sm font-bold focus:border-[var(--color-gold)] outline-none"
-                                        />
-                                    </div>
-                                ))}
+
+                            {/* Canal de venta */}
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Canal de Venta</label>
+                                <select
+                                    value={form.canal}
+                                    onChange={e => setForm(f => ({ ...f, canal: e.target.value }))}
+                                    className="w-full bg-[var(--color-obsidian)] border border-[var(--color-obsidian-border)] text-white px-4 py-2.5 text-sm font-bold focus:border-[var(--color-gold)] outline-none"
+                                >
+                                    <option value="">— Seleccioná un canal —</option>
+                                    {canalesDisponibles.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                                {errores.canal && <p className="text-[var(--color-signal)] text-xs mt-1 font-bold">{errores.canal}</p>}
                             </div>
-                            {errores.total && <p className="text-[var(--color-signal)] text-xs font-bold">{errores.total}</p>}
+
+                            {/* Turno */}
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Turno</label>
+                                <select
+                                    value={form.turno}
+                                    onChange={e => setForm(f => ({ ...f, turno: e.target.value }))}
+                                    className="w-full bg-[var(--color-obsidian)] border border-[var(--color-obsidian-border)] text-white px-4 py-2.5 text-sm font-bold focus:border-[var(--color-gold)] outline-none"
+                                >
+                                    {TURNOS_OPCIONES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                </select>
+                            </div>
+
+                            {/* Total venta */}
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Total Venta $</label>
+                                <input
+                                    type="number"
+                                    placeholder="0"
+                                    value={form.total_venta}
+                                    onChange={e => setForm(f => ({ ...f, total_venta: e.target.value }))}
+                                    className="w-full bg-[var(--color-obsidian)] border border-[var(--color-obsidian-border)] text-white px-4 py-2.5 text-sm font-bold focus:border-[var(--color-gold)] outline-none"
+                                />
+                                {errores.total_venta && <p className="text-[var(--color-signal)] text-xs mt-1 font-bold">{errores.total_venta}</p>}
+                            </div>
+
                             {/* Medios de pago */}
                             <div>
                                 <div className="flex justify-between items-center mb-2">
@@ -225,7 +371,38 @@ export default function VentasDashboard({ data, onUpdate }) {
                                         )}
                                     </div>
                                 ))}
-                                {errores.medios && <p className="text-[var(--color-signal)] text-xs font-bold mt-1">{errores.medios}</p>}
+                            </div>
+
+                            {/* Total declarado */}
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Total Declarado $</label>
+                                <input
+                                    type="number"
+                                    placeholder="0"
+                                    value={form.total_declarado}
+                                    onChange={e => setForm(f => ({ ...f, total_declarado: e.target.value }))}
+                                    className="w-full bg-[var(--color-obsidian)] border border-[var(--color-obsidian-border)] text-white px-4 py-2.5 text-sm font-bold focus:border-[var(--color-gold)] outline-none"
+                                />
+                            </div>
+
+                            {/* Notas (opcional) */}
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Notas (opcional)</label>
+                                <input
+                                    type="text"
+                                    placeholder="Ej: Evento especial, promoción, etc."
+                                    value={form.notas}
+                                    onChange={e => setForm(f => ({ ...f, notas: e.target.value }))}
+                                    className="w-full bg-[var(--color-obsidian)] border border-[var(--color-obsidian-border)] text-white px-4 py-2.5 text-sm font-bold focus:border-[var(--color-gold)] outline-none"
+                                />
+                            </div>
+
+                            {/* Diferencia (auto-calculada) */}
+                            <div className="bg-black/30 border border-[var(--color-obsidian-border)] px-4 py-3 flex justify-between items-center">
+                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Diferencia $</span>
+                                <span className={`text-sm font-black ${diferencia === 0 ? 'text-green-400' : diferencia > 0 ? 'text-[var(--color-gold)]' : 'text-[var(--color-signal)]'}`}>
+                                    {diferencia >= 0 ? '+' : ''}{formatPesos(diferencia)}
+                                </span>
                             </div>
                         </div>
                         <div className="px-6 py-4 border-t border-[var(--color-obsidian-border)] flex justify-end gap-3">

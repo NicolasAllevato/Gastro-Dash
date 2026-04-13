@@ -275,6 +275,7 @@ NOTIFICACIONES
 - Logs en LOGS sheet
 - Telegram para duplicados
 - Detección de productos nuevos (PREP_Alta_Producto_Nuevo)
+- Ruta web: `WH_Subir_Factura → WH_Preparar_Contexto` (binary preservado) → OCR pipeline
 
 ### ✅ Implementado (2026-04-03)
 
@@ -293,21 +294,76 @@ NOTIFICACIONES
 | Switch cases conectados: SERVICIOS/RRHH/PAGOS/OTROS → TG Manual (notificación temporal) | ✅ |
 | Renombres: TRIGGER_MANUAL, LP_Check_Status, UNIR_FALSE_Y_MAESTRO × 2 | ✅ |
 
-### ⚠️ Pendiente
+### ✅ Completado (2026-04-03) — sesión anterior
+
+| Tarea | Estado |
+|-------|--------|
+| M9: Prompts 4 agentes IA reescritos y subidos a n8n | ✅ |
+| M10: Botones "Plantilla Vale" y "Cargar Vale" en FacturasDashboard | ✅ |
+| M11: Workflow GET activo (`DPmkUabiLnM5zAGE`) | ✅ |
+| M12: Verificación frontend con datos reales — normalizer en api.js | ✅ |
+| Auth admin email → Nicolasallevato@gmail.com en 07_CONFIG/USUARIOS | ✅ |
+
+### ✅ Completado (2026-04-06) — Módulo Configuraciones
+
+| Tarea | Estado |
+|-------|--------|
+| `ConfiguracionesDashboard.jsx` — 5 tabs (Usuarios, Empleados, Medios de Pago, Notificaciones, General) | ✅ |
+| `api.js` — `fetchConfiguraciones`, `postGestionarUsuario`, `postGuardarConfiguracion`, `sha256` | ✅ |
+| `.env` — 3 variables de config (`VITE_N8N_CONFIG_GET_URL`, `VITE_N8N_GUARDAR_CONFIG_URL`, `VITE_N8N_GESTIONAR_USUARIO_URL`) | ✅ |
+| n8n: **Configuraciones GET** (`P1H9jwOHVKz4vnN2`) — `GET /webhook/configuraciones` — activo | ✅ |
+| n8n: **Gestionar Usuario** (`ndseS0N1pPLPqUW8`) — `POST /webhook/gestionar-usuario` — activo | ✅ |
+| n8n: **Guardar Configuracion** (`dVpaZi93d3PqmqRd`) — `POST /webhook/guardar-configuracion` — activo | ✅ |
+
+**Notas de implementación Configuraciones:**
+- Solo visible para rol `admin`
+- `gestionar-usuario`: `appendOrUpdate` en USUARIOS matcheando por `email` (crea o actualiza)
+- `guardar-configuracion`: switch por `seccion` → empleados/medios_pago/notificaciones/general
+- CONFIG, ALERTAS_CONFIG y PARAMETROS_SUELDOS usan `_key` como columna de upsert (`"config"`, `"alertas"`, `"params"`)
+- Contraseñas: SHA-256 en frontend, se recomienda bcrypt server-side en n8n
+
+### ✅ Completado (2026-04-07) — sesión actual
+
+| Tarea | Estado |
+|-------|--------|
+| `FacturasDashboard.jsx` — tipografía table: `text-base lg:text-xl` → `text-sm` | ✅ |
+| `FacturasDashboard.jsx` — botón descarga abre `f.drive_link` en Drive, gris si sin archivo | ✅ |
+| n8n GET (`DPmkUabiLnM5zAGE`) — `drive_link: f.link \|\| ''` agregado a `listaFacturas` | ✅ |
+| n8n GET — nodo `GS_Costos` agregado: lee `RESTAURANTE_GESTION_DB/COSTOS` (GID 2128411592) | ✅ |
+| n8n GET — `Code_Build_Response` reescrito: stock con cantidades de COMPRAS; costos con variación de precios desde historial COMPRAS; rankingDeuda y porCategoria reales | ✅ |
+| n8n ingesta (`6goDpn3iO5HRY6iN`) — `WH_Preparar_Contexto`: bug crítico corregido — ahora preserva `item.binary` del webhook y setea `mime` (no `mime_type`) para que `LP_Normalizador` funcione vía web | ✅ |
+
+**Estructura GET workflow actualizada (10 nodos):**
+```
+WH_GET_Data → GS_Ventas → GS_Compras → GS_Facturas → GS_Pagos → GS_Productos → GS_Vales → GS_Costos → Code_Build_Response → WH_Respond
+```
+
+**Lógica Code_Build_Response:**
+- `stock.inventario`: productos de `01_INVENTARIO/PRODUCTOS`, campo `compras` = suma cantidades del mes desde `COMPRAS`
+- `costos.productos`: catálogo de `COSTOS` (225 insumos), `ant`/`act`/`var` calculados desde historial de `precio_unitario` en COMPRAS
+- `costos.kpis.mayorGasto`: producto con mayor gasto total del mes (suma `total_linea` en COMPRAS)
+- `compras.rankingDeuda` y `compras.porCategoria`: calculados desde datos reales de COMPRAS
+
+### ⚠️ Pendiente — v1
 
 | Tarea | Prioridad |
 |-------|-----------|
-| M9: Reescribir prompts de los 4 agentes IA | 🟡 media |
-| M10: Botones "Plantilla Vale" y "Cargar Vale" en FacturasDashboard | 🟡 media |
-| M11: Crear workflow GET n8n (lee 02_DATABASE → JSON para frontend) | 🔴 alta |
-| M12: Verificación frontend con datos reales | ✅ completado |
-| SERVICIOS: pipeline completo (hoy es TG manual) | 🟢 baja |
+| Actualizar emails/passwords gerente, contador, empleado (se hace vía app) | 🟡 media |
+| `POST /webhook/actualizar-factura` — workflow n8n para marcar factura como pagada | 🟡 media |
+| Validación end-to-end: OCR facturas vía web (bug LP_Normalizador corregido, probar) | 🟡 media |
+| Deploy a EasyPanel o Vercel | 🟡 media |
+| SERVICIOS: pipeline completo en n8n (hoy es TG manual) | 🟢 baja |
 | RRHH: extractor de vales completo (hoy es TG manual) | 🟢 baja |
 | PAGOS/OTROS: Telegram inline keyboard para confirmación humana | 🟢 baja |
 
-**N8N — Workflow GET (no existe aún):**
-- Leer todas las Sheets y armar el JSON que espera el frontend
-- Responder al `VITE_N8N_WEBHOOK_URL` con la estructura de datos completa
+### 🔮 Pendiente — v1.1 (post-lanzamiento)
+
+| Tarea | Notas |
+|-------|-------|
+| **GastroIA Assist → RAG propio** | Reemplazar `callGeminiWithContext` + `VITE_GEMINI_API_KEY` por endpoint RAG vía n8n o backend propio. La key de Gemini NO restringir por dominio hasta que esté el RAG (la arquitectura va a cambiar igual). |
+| Bcrypt server-side para passwords | Agregar nodo bcrypt en workflows `gestionar-usuario` y `gastro-login` |
+| Flujo "cambiar mi password" para no-admins | Botón en header → llama a `gestionar-usuario` con `action: 'actualizar'` |
+| Session expiry en AuthContext | Agregar timestamp al login y validar expiración |
 
 ---
 
@@ -323,15 +379,16 @@ NOTIFICACIONES
 | D6 | Respuesta webhook | Inmediata (async) | OCR tarda 1-2 min, no se puede esperar |
 | D7 | Telegram | Éxito + errores (no ruido de cada producto) | Balance entre información y spam |
 | D8 | Cierre exitoso | Registra en FACTURAS_PROCESADAS + mueve Drive | Auditoría + orden en Drive |
+| D9 | COSTOS en GET workflow | Leer desde `RESTAURANTE_GESTION_DB/COSTOS` (GID 2128411592) — no desde `02_FACTURAS` | El workflow de ingesta aún escribe ahí; `02_FACTURAS/COSTOS` es copia de migración sin actualizaciones |
+| D10 | Variación de precios | Calculada desde historial de `precio_unitario` en COMPRAS, no desde campo en COSTOS | COSTOS solo tiene precio actual; la variación emerge comparando compras cronológicas |
+| D11 | Stock × COMPRAS | `compras` en inventario = suma de `cantidad` del mes desde COMPRAS, match por nombre (lowercase) | PRODUCTOS tiene stock_actual pero no registra entradas; COMPRAS es la fuente de movimientos de entrada |
 
 ---
 
 ## Preguntas pendientes de confirmar
 
-1. **PRODUCTOS sheet:** ¿Existe en el spreadsheet? ¿Con qué columnas?
-2. **Carpeta Errores Drive:** ¿Querés que los archivos rechazados vayan a una carpeta específica?
-3. **Producto nuevo en COMPRAS:** Cuando un producto nuevo se detecta, ¿entra a COMPRAS con precio/cantidad estimados o solo como registro de detección?
-4. **Workflow GET:** ¿Cuándo queremos armar el workflow que le responde al frontend con los datos de todas las hojas?
+1. **Carpeta Errores Drive:** ¿Querés que los archivos rechazados vayan a una carpeta específica?
+2. **Producto nuevo en COMPRAS:** Cuando un producto nuevo se detecta, ¿entra a COMPRAS con precio/cantidad estimados o solo como registro de detección?
 
 ---
 
