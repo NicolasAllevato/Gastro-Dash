@@ -282,12 +282,12 @@ export default function ComprasDashboard({ data }) {
                         <table className="w-full text-sm text-white">
                             <thead className="bg-[#111111] border-b border-[var(--color-obsidian-border)] text-[11px] uppercase tracking-wider font-semibold text-[var(--color-gold)]">
                                 <tr>
-                                    <th className="px-4 py-3 text-left">ID Factura</th>
-                                    <th className="px-4 py-3 text-left">Categoría</th>
-                                    <th className="px-4 py-3 text-left">Proveedor</th>
+                                    <th className="px-4 py-3 text-center">ID Factura</th>
+                                    <th className="px-4 py-3 text-center">Categoría</th>
+                                    <th className="px-4 py-3 text-center">Proveedor</th>
                                     <th className="px-4 py-3 text-center">Vencimiento</th>
-                                    <th className="text-right px-4 py-3">Total</th>
-                                    <th className="text-center px-4 py-3">Estado</th>
+                                    <th className="px-4 py-3 text-center">Total</th>
+                                    <th className="px-4 py-3 text-center">Estado</th>
                                 </tr>
                             </thead>
                             <tbody className="text-sm">
@@ -295,12 +295,12 @@ export default function ComprasDashboard({ data }) {
                                     <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500 text-sm font-semibold">No hay facturas con ese filtro.</td></tr>
                                 ) : facturasFiltradas.map((f, i) => (
                                     <tr key={i} className="border-b border-[var(--color-obsidian-border)] hover:bg-white/5 transition-colors">
-                                        <td className="px-4 py-3 text-left text-gray-200 font-mono font-semibold">{f.id}</td>
-                                        <td className="px-4 py-3 text-left text-gray-300 capitalize">{f.categoria}</td>
-                                        <td className="px-4 py-3 text-left text-gray-400">{f.proveedor}</td>
+                                        <td className="px-4 py-3 text-center text-gray-200 font-mono font-semibold">{f.id}</td>
+                                        <td className="px-4 py-3 text-center text-gray-300 capitalize">{f.categoria}</td>
+                                        <td className="px-4 py-3 text-center text-gray-400">{f.proveedor}</td>
                                         <td className="px-4 py-3 text-center text-gray-400">{f.vencimiento}</td>
-                                        <td className="text-right px-4 py-3 font-semibold text-white">{formatPesos(f.total)}</td>
-                                        <td className="text-center px-4 py-3">
+                                        <td className="px-4 py-3 text-center font-semibold text-white">{formatPesos(f.total)}</td>
+                                        <td className="px-4 py-3 text-center">
                                             <span className={`px-2 py-0.5 border text-[10px] font-black uppercase tracking-widest ${f.estado === 'Pagada' ? 'border-[var(--color-acid)] text-[var(--color-acid)]' : f.estado === 'Vencida' ? 'border-[var(--color-signal)] text-[var(--color-signal)]' : 'border-[var(--color-gold)] text-[var(--color-gold)]'}`}>
                                                 {f.estado}
                                             </span>
