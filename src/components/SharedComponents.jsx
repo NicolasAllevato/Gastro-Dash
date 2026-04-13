@@ -161,15 +161,15 @@ export function FilterBar({ filtros, onFiltrar, onLimpiar }) {
 
 export function TableWrapper({ title, subtitle, children, action }) {
     return (
-        <div className="glass-panel overflow-hidden shadow-xl w-full">
-            <div className="p-4 lg:p-6 border-b border-[var(--color-obsidian-border)] bg-[var(--color-obsidian)] flex flex-col sm:flex-row justify-between sm:items-center gap-2">
-                <div>
-                    <h3 className="font-black text-white uppercase tracking-widest text-base lg:text-lg">{title}</h3>
+        <div className="glass-panel overflow-hidden border border-[var(--color-obsidian-border)] shadow-xl w-full h-full flex flex-col">
+            <div className="px-5 py-4 border-b border-[var(--color-obsidian-border)] bg-[#111111] flex flex-col sm:flex-row justify-between sm:items-center gap-4 shrink-0">
+                <div className="flex flex-col justify-center">
+                    <h3 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2">{title}</h3>
                     {subtitle && <p className="text-[9px] lg:text-[10px] font-bold text-[var(--color-gold)] uppercase tracking-widest mt-1 opacity-80">{subtitle}</p>}
                 </div>
                 {action && <div className="shrink-0">{action}</div>}
             </div>
-            <div className="overflow-x-auto w-full max-w-full">
+            <div className="overflow-x-auto w-full max-w-full flex-1">
                 {children}
             </div>
         </div>

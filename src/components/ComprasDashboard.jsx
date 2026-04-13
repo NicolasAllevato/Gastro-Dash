@@ -214,12 +214,9 @@ export default function ComprasDashboard({ data }) {
                 {/* Columna Izquierda */}
                 <div className="lg:col-span-1 flex flex-col gap-6">
                     {/* COMPRAS POR CATEGORÍA */}
-                    <div className="glass-panel overflow-hidden border border-[var(--color-obsidian-border)]">
-                        <div className="px-5 py-4 border-b border-[var(--color-obsidian-border)] flex items-center justify-between bg-[#111111]">
-                            <h3 className="font-black text-white uppercase tracking-widest text-[13px] flex items-center gap-2">
-                                <ShoppingCart size={16} className="text-[var(--color-gold)]" /> Categ. Pagadas
-                            </h3>
-                        </div>
+                    <TableWrapper 
+                        title={<><ShoppingCart size={16} className="text-[var(--color-gold)]" /> Categoría de Compras</>}
+                    >
                         {comprasPorCategoriaList.length === 0 ? (
                             <p className="px-5 py-8 text-center text-gray-500 text-xs font-bold uppercase tracking-widest">Sin datos</p>
                         ) : (
@@ -239,36 +236,31 @@ export default function ComprasDashboard({ data }) {
                                 })}
                             </div>
                         )}
-                    </div>
+                    </TableWrapper>
 
                     {/* Tabla deudas */}
-                    <div className="glass-panel overflow-hidden border border-[var(--color-obsidian-border)]">
-                        <div className="px-5 py-4 border-b border-[var(--color-obsidian-border)] flex items-center justify-between bg-[#111111]">
-                            <h3 className="font-black text-white uppercase tracking-widest text-[13px] flex items-center gap-2">
-                                <AlertTriangle size={16} className="text-[var(--color-signal)]" /> Top Deudas / Pendientes
-                            </h3>
-                        </div>
-                        <div className="overflow-x-auto w-full max-w-full">
-                            <table className="w-full text-sm text-white">
-                                <thead className="bg-[#111111] border-b border-[var(--color-obsidian-border)] text-[11px] uppercase tracking-wider font-semibold text-[var(--color-signal)]">
-                                    <tr>
-                                        <th className="px-4 py-2 text-left">Proveedor</th>
-                                        <th className="text-right px-4 py-2">Monto Deuda</th>
+                    <TableWrapper 
+                        title={<><AlertTriangle size={16} className="text-[var(--color-signal)]" /> Top Deudas / Pendientes</>}
+                    >
+                        <table className="w-full text-sm text-white">
+                            <thead className="bg-[#111111] border-b border-[var(--color-obsidian-border)] text-[11px] uppercase tracking-wider font-semibold text-[var(--color-signal)]">
+                                <tr>
+                                    <th className="px-4 py-3 text-left">Proveedor</th>
+                                    <th className="text-right px-4 py-3">Monto Deuda</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-[13px]">
+                                {(compras.rankingDeuda || []).length === 0 ? (
+                                    <tr><td colSpan={2} className="px-6 py-8 text-center text-gray-500 text-xs font-semibold">Sin deudas registradas.</td></tr>
+                                ) : (compras.rankingDeuda || []).map((d, i) => (
+                                    <tr key={i} className="border-b border-[var(--color-obsidian-border)] hover:bg-white/5 transition-colors">
+                                        <td className="px-4 py-2.5 text-left text-gray-300 font-semibold">{d.proveedor}</td>
+                                        <td className="text-right px-4 py-2.5 font-semibold text-white">{formatPesos(d.monto)}</td>
                                     </tr>
-                                </thead>
-                                <tbody className="text-[13px]">
-                                    {(compras.rankingDeuda || []).length === 0 ? (
-                                        <tr><td colSpan={2} className="px-6 py-8 text-center text-gray-500 text-xs font-semibold">Sin deudas registradas.</td></tr>
-                                    ) : (compras.rankingDeuda || []).map((d, i) => (
-                                        <tr key={i} className="border-b border-[var(--color-obsidian-border)] hover:bg-white/5 transition-colors">
-                                            <td className="px-4 py-2.5 text-left text-gray-300 font-semibold">{d.proveedor}</td>
-                                            <td className="text-right px-4 py-2.5 font-semibold text-white">{formatPesos(d.monto)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                                ))}
+                            </tbody>
+                        </table>
+                    </TableWrapper>
                 </div>
 
                 {/* Tabla facturas (ahora en la parte media, col-span-2) */}
